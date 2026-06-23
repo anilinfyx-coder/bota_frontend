@@ -35,7 +35,7 @@ export default function Login() {
     <div className="min-h-screen flex items-center justify-center px-4">
       <div className="glass-panel max-w-md w-full p-8 rounded-2xl border border-border shadow-2xl">
         <div className="flex justify-center mb-6">
-          <div className="bg-rose-600 p-3 rounded-xl shadow-[0_0_20px_rgba(225,29,72,0.4)]">
+          <div className="bg-rose-600 p-3 rounded-xl logo-box">
             <Lock size={32} className="text-white" />
           </div>
         </div>

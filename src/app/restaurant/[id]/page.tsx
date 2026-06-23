@@ -502,13 +502,19 @@ export default function RestaurantPage({ params }: { params: Promise<{ id: strin
         <div className="grid grid-cols-4 grid-rows-2 gap-2 h-[260px] md:h-[380px] rounded-2xl overflow-hidden shadow-sm border border-slate-100 mb-6 bg-slate-100">
           <div
             onClick={() => openLightbox(0)}
-            className="col-span-4 md:col-span-2 row-span-2 relative overflow-hidden cursor-pointer"
+            className="col-span-4 md:col-span-2 row-span-2 relative overflow-hidden cursor-pointer group"
           >
             <img
               src={photos[0]}
               alt={`${profile.name} interior`}
               className="w-full h-full object-cover hover:scale-102 transition-transform duration-500"
             />
+            {/* View Gallery Badge for Mobile Viewports only */}
+            <div className="absolute bottom-3 right-3 md:hidden bg-black/60 backdrop-blur-[2px] text-white text-xs font-bold px-3 py-1.5 rounded-lg flex items-center gap-1.5 z-10 shadow-md">
+              <ImageIcon size={14} className="text-white" />
+              <span>View Gallery</span>
+              <span className="text-[10px] text-white/70">({photos.length})</span>
+            </div>
           </div>
           <div
             onClick={() => openLightbox(1)}

@@ -10,6 +10,17 @@
   --color-border: var(--border);
   --color-accent: var(--accent);
   --color-muted-foreground: var(--muted-foreground);
+  
+  --color-rose-50: var(--rose-50);
+  --color-rose-100: var(--rose-100);
+  --color-rose-200: var(--rose-200);
+  --color-rose-300: var(--rose-300);
+  --color-rose-400: var(--rose-400);
+  --color-rose-500: var(--rose-500);
+  --color-rose-600: var(--rose-600);
+  --color-rose-700: var(--rose-700);
+  --color-rose-800: var(--rose-800);
+  --color-rose-900: var(--rose-900);
 }
 
 @layer base {
@@ -17,13 +28,26 @@
   .customer-theme {
     --background: #f8fafc;
     --foreground: #0f172a;
-    --primary: #e11d48;
+    --primary: #1b6b93;
     --primary-foreground: #ffffff;
     --card: #ffffff;
     --card-foreground: #0f172a;
     --border: rgba(0, 0, 0, 0.08);
     --accent: #f1f5f9;
     --muted-foreground: #475569;
+
+    --rose-50: #f0f9ff;
+    --rose-100: #e0f2fe;
+    --rose-200: #bae6fd;
+    --rose-300: #7dd3fc;
+    --rose-400: #38bdf8;
+    --rose-500: #0ea5e9;
+    --rose-600: #1b6b93;
+    --rose-700: #155575;
+    --rose-800: #0f3d56;
+    --rose-900: #0a293a;
+
+    --primary-glow: rgba(27, 107, 147, 0.25);
   }
   
   .admin-theme {
@@ -36,6 +60,19 @@
     --border: rgba(0, 0, 0, 0.08);
     --accent: #f3f4f6;
     --muted-foreground: #6b7280;
+
+    --rose-50: #fff1f2;
+    --rose-100: #ffe4e6;
+    --rose-200: #fecdd3;
+    --rose-300: #fda4af;
+    --rose-400: #fb7185;
+    --rose-500: #f43f5e;
+    --rose-600: #e11d48;
+    --rose-700: #be123c;
+    --rose-800: #9f1239;
+    --rose-900: #881337;
+
+    --primary-glow: rgba(225, 29, 72, 0.25);
   }
   
   .dark {
@@ -48,6 +85,19 @@
     --border: rgba(255, 255, 255, 0.1);
     --accent: #1e1e24;
     --muted-foreground: #a1a1aa;
+
+    --rose-50: #fff1f2;
+    --rose-100: #ffe4e6;
+    --rose-200: #fecdd3;
+    --rose-300: #fda4af;
+    --rose-400: #fb7185;
+    --rose-500: #f43f5e;
+    --rose-600: #e11d48;
+    --rose-700: #be123c;
+    --rose-800: #9f1239;
+    --rose-900: #881337;
+
+    --primary-glow: rgba(225, 29, 72, 0.4);
   }
   
   body {
@@ -95,12 +145,13 @@
     @apply bg-rose-600 text-white px-6 py-3 rounded-lg font-medium transition-all duration-300 hover:bg-rose-700 active:scale-95 cursor-pointer;
   }
   
-  html:not(.dark) .btn-primary {
-    @apply hover:shadow-[0_0_20px_rgba(225,29,72,0.2)];
+  .btn-primary:hover {
+    box-shadow: 0 0 20px var(--primary-glow);
   }
 
-  html.dark .btn-primary {
-    @apply hover:shadow-[0_0_20px_rgba(225,29,72,0.4)];
+  .logo-box {
+    box-shadow: 0 0 15px var(--primary-glow);
+    transition: transform 0.3s, box-shadow 0.3s;
   }
   
   .btn-secondary {

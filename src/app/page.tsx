@@ -1,6 +1,6 @@
 "use client";
 import { useState, useEffect, useRef, useCallback } from "react";
-import { Search, MapPin, Star, ArrowRight, ChevronRight, Navigation, Loader2, X } from "lucide-react";
+import { Search, MapPin, Star, ArrowRight, ChevronLeft, ChevronRight, Navigation, Loader2, X, Percent } from "lucide-react";
 import Link from "next/link";
 import { useGetBusinessTypesQuery, useGetBusinessesQuery, Business } from "@/services/api";
 
@@ -118,52 +118,86 @@ function RestaurantCard({ restaurant }: { restaurant: Business }) {
   };
 
   const imageSrc = restaurant.cover_image_url || getFallbackImageForType(restaurant.type_name);
-  const isOpen = restaurant.is_open ?? true;
-  const rating = Number(restaurant.rating || 0).toFixed(1);
-  const reviewsCount = restaurant.reviews_count || 0;
-  const priceRange = restaurant.price_range || "₹₹";
-  const cuisine = restaurant.cuisine || "Cuisine details";
+  const rating = Number(restaurant.rating || 4.2).toFixed(1);
+  const cuisine = restaurant.cuisine || "Italian, Chinese, Continental";
+  
+  const getLocality = (addr: string) => {
+    const parts = addr.split(",");
+    if (parts.length >= 2) {
+      return `${parts[0].trim()}, ${parts[1].trim()}`;
+    }
+    return addr;
+  };
+
+  const idHash = typeof restaurant.id === 'number' 
+    ? restaurant.id 
+    : (restaurant.id ? restaurant.id.toString().split('').reduce((acc, char) => acc + char.charCodeAt(0), 0) : 0);
+
+  const getPriceForTwo = (id: number) => {
+    const bases = [1200, 1500, 2000, 2400, 1800];
+    return `₹${bases[id % bases.length]} for two`;
+  };
+
+  const getDistance = (id: number) => {
+    const dists = [4.9, 3.5, 5.0, 2.8, 6.2];
+    return `${dists[id % dists.length]} km`;
+  };
+
+  const isPromoted = idHash % 2 === 0;
+  const hasDiscount = idHash % 3 === 0 || idHash % 5 === 0;
 
   return (
     <Link
       href={`/restaurant/${restaurant.id}`}
-      className="group block bg-white rounded-2xl overflow-hidden shadow-sm hover:shadow-xl transition-all duration-300 hover:-translate-y-1 border border-slate-100"
+      className="group block bg-white hover:shadow-xl rounded-2xl p-3 transition-all duration-300 hover:-translate-y-1.5 border border-slate-100/80"
     >
-      <div className="relative h-44 overflow-hidden bg-slate-100">
+      <div className="relative h-56 rounded-xl overflow-hidden bg-slate-100 mb-3.5">
         <img
           src={imageSrc}
           alt={restaurant.name}
-          className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+          className="w-full h-full object-cover group-hover:scale-[1.03] transition-transform duration-500"
           onError={(e) => {
             (e.target as HTMLImageElement).src =
               "https://images.unsplash.com/photo-1541518763669-27fef04b14ea?w=500&q=80";
           }}
         />
-        <div className="absolute inset-0 bg-gradient-to-t from-black/40 via-transparent to-transparent" />
-        <div className="absolute bottom-3 left-3 flex items-center gap-1 bg-white/95 backdrop-blur-sm rounded-full px-2 py-1 shadow-sm">
-          <Star size={11} className="text-amber-400 fill-amber-400" />
-          <span className="text-xs font-bold text-slate-800">{rating}</span>
-          <span className="text-xs text-slate-500">({reviewsCount})</span>
-        </div>
+        <div className="absolute inset-0 bg-gradient-to-t from-black/25 via-transparent to-transparent" />
+        
+        {isPromoted && (
+          <span className="absolute top-3 left-3 bg-black/40 backdrop-blur-[2px] text-white text-[10px] font-semibold px-2 py-0.5 rounded shadow-sm">
+            Promoted
+          </span>
+        )}
+
+        {hasDiscount && (
+          <div className="absolute bottom-3 left-0 bg-gradient-to-r from-blue-600 to-blue-500 text-white text-[11px] font-bold px-2.5 py-1 rounded-r-md flex items-center gap-1 shadow-md shadow-blue-900/10">
+            <Percent size={11} className="text-white shrink-0" />
+            <span>Flat 10% OFF</span>
+          </div>
+        )}
       </div>
-      <div className="p-4">
-        <div className="flex items-start justify-between gap-2 mb-1">
-          <h3 className="font-bold text-slate-800 text-[15px] leading-tight line-clamp-1 group-hover:text-rose-600 transition-colors">
+
+      <div className="px-1 pb-1">
+        <div className="flex justify-between items-start gap-2 mb-1.5">
+          <h3 className="font-bold text-slate-800 text-[16px] leading-tight truncate flex-1 group-hover:text-rose-600 transition-colors">
             {restaurant.name}
           </h3>
-          <span className="text-xs text-slate-400 font-medium whitespace-nowrap mt-0.5">
-            {priceRange}
+          <div className="shrink-0 flex items-center gap-0.5 bg-emerald-700 text-white text-[11px] font-black px-1.5 py-0.5 rounded-md shadow-sm">
+            <span>{rating}</span>
+            <span className="text-[9px]">★</span>
+          </div>
+        </div>
+
+        <div className="flex justify-between items-center gap-4 mb-1 text-[13px] text-slate-500">
+          <span className="truncate flex-1 font-medium">{cuisine}</span>
+          <span className="shrink-0 whitespace-nowrap font-medium text-slate-650">
+            {getPriceForTwo(idHash)}
           </span>
         </div>
-        <p className="text-xs text-slate-500 mb-2 line-clamp-1">{cuisine}</p>
-        <div className="flex items-center gap-1 text-xs text-slate-400">
-          <MapPin size={11} className="text-rose-400 shrink-0" />
-          <span className="line-clamp-1">{restaurant.address}</span>
-        </div>
-        <div className="mt-4 pt-3 border-t border-slate-100">
-          <div className="w-full bg-rose-50 text-rose-600 rounded-xl py-2 text-center text-sm font-semibold transition-all duration-200 group-hover:bg-rose-600 group-hover:text-white">
-            Book a Table
-          </div>
+
+        <div className="flex justify-between items-center gap-4 text-xs text-slate-400">
+          <span className="truncate flex-1 font-medium">{getLocality(restaurant.address)}</span>
+          <span className="shrink-0 whitespace-nowrap font-medium">{getDistance(idHash)}</span>
         </div>
       </div>
     </Link>
@@ -318,23 +352,55 @@ export default function Home() {
   const [searchInput, setSearchInput] = useState("");
   const [activeFilter, setActiveFilter] = useState("All");
 
+  const collectionsRef = useRef<HTMLDivElement>(null);
+
+  const scrollCollections = (direction: 'left' | 'right') => {
+    if (collectionsRef.current) {
+      const cardWidth = 192; // w-48 = 192px
+      const gap = 16; // gap-4 = 16px
+      const scrollAmount = cardWidth + gap;
+      collectionsRef.current.scrollBy({
+        left: direction === 'left' ? -scrollAmount : scrollAmount,
+        behavior: 'smooth'
+      });
+    }
+  };
+
   const handleSearchSubmit = () => {
     setSearchQuery(searchInput);
   };
 
-  // Read initial filter/city from URL query params
+  const handleMoodSelect = (query: string) => {
+    setSearchQuery(query);
+    setSearchInput(query);
+    setTimeout(() => {
+      const element = document.getElementById("restaurant-listings");
+      if (element) {
+        element.scrollIntoView({ behavior: "smooth" });
+      }
+    }, 100);
+  };
+
+  // Read initial search/filter/city from URL query params
   useEffect(() => {
     if (typeof window !== 'undefined') {
       const params = new URLSearchParams(window.location.search);
       const filterParam = params.get('filter');
       const cityParam = params.get('city');
-      
+      const searchParam = params.get('search');
+
       if (filterParam) {
         setActiveFilter(filterParam);
       }
       if (cityParam) {
         setLocationCity(cityParam);
         setLocationLabel(cityParam);
+        localStorage.setItem('selected_city', cityParam);
+        window.dispatchEvent(new Event('selected_city_changed'));
+      }
+      if (searchParam) {
+        setSearchQuery(searchParam);
+        setSearchInput(searchParam);
       }
     }
   }, []);
@@ -383,6 +449,8 @@ export default function Home() {
       setLocationLabel(city);
       setLocationCity(city);
       setLocationError(false);
+      localStorage.setItem('selected_city', city);
+      window.dispatchEvent(new Event('selected_city_changed'));
     };
 
     // If browser doesn't support geolocation → fall back to IP immediately
@@ -477,7 +545,7 @@ export default function Home() {
     else if (lower === "cafe") name = "Cafes";
     else if (lower === "restaurant") name = "Restaurants";
     else if (!name.endsWith("s")) name = name + "s";
-    
+
     return city ? `${name} in ${city}` : `${name} Near You`;
   };
 
@@ -487,7 +555,7 @@ export default function Home() {
       {/* ── 1. Hero Search Banner ──────────────────────────────────────────── */}
       <div
         className={`relative ${showLocationDropdown ? "z-40" : ""}`}
-        style={{ background: "linear-gradient(135deg, #1a0a0a 0%, #3d1515 40%, #1a0a0a 100%)" }}
+        style={{ background: "linear-gradient(135deg, #091e2b 0%, #14496b 50%, #091e2b 100%)" }}
       >
         {/* Background food image */}
         <div
@@ -495,13 +563,13 @@ export default function Home() {
           style={{ backgroundImage: "url(https://images.unsplash.com/photo-1544025162-d76694265947?w=1600&q=80)" }}
         />
         {/* Radial glow */}
-        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_50%_120%,rgba(220,38,38,0.25),transparent_70%)]" />
+        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_50%_120%,rgba(27,107,147,0.3),transparent_70%)]" />
 
         <div className="relative z-10 max-w-5xl mx-auto px-4 pt-20 pb-16">
           {/* Headline */}
           <h1 className="text-4xl md:text-6xl font-extrabold text-white mb-3 leading-tight tracking-tight">
             What are you in the <br />
-            <span className="text-transparent bg-clip-text bg-gradient-to-r from-rose-400 to-amber-400">
+            <span className="text-transparent bg-clip-text bg-gradient-to-r from-sky-400 to-amber-400">
               mood for?
             </span>
           </h1>
@@ -510,14 +578,14 @@ export default function Home() {
           </p>
 
           {/* ── Combined Location + Search Bar ── */}
-          <div ref={locationRef} className="relative max-w-3xl">
-            <div className="flex items-stretch bg-white rounded-2xl shadow-2xl overflow-hidden">
+          <div ref={locationRef} className="relative max-w-4xl">
+            <div className="flex flex-col sm:flex-row items-stretch bg-white rounded-2xl shadow-2xl overflow-hidden">
 
               {/* LEFT: Location Picker */}
               <button
                 id="location-picker-btn"
                 onClick={() => setShowLocationDropdown((v) => !v)}
-                className={`flex items-center gap-2 px-4 py-4 shrink-0 border-r border-slate-100 hover:bg-slate-50 transition-colors min-w-[160px] max-w-[200px] ${showLocationDropdown ? "bg-rose-50 border-rose-100" : ""
+                className={`flex items-center gap-2 px-4 py-4 shrink-0 border-b sm:border-b-0 sm:border-r border-slate-100 hover:bg-slate-50 transition-colors w-full sm:w-auto sm:min-w-[220px] sm:max-w-[260px] ${showLocationDropdown ? "bg-rose-50 border-rose-100" : ""
                   }`}
               >
                 {locationLoading ? (
@@ -551,7 +619,7 @@ export default function Home() {
               </button>
 
               {/* RIGHT: Restaurant Search */}
-              <div className="flex-1 flex items-center gap-2 px-4">
+              <div className="flex-1 flex items-center gap-2 px-4 border-b sm:border-b-0 border-slate-100">
                 <Search size={18} className="text-slate-400 shrink-0" />
                 <input
                   type="text"
@@ -579,9 +647,9 @@ export default function Home() {
               </div>
 
               {/* Search CTA */}
-              <button 
+              <button
                 onClick={handleSearchSubmit}
-                className="bg-rose-600 hover:bg-rose-700 text-white px-7 py-4 font-semibold text-sm transition-colors shadow-lg shadow-rose-600/30 whitespace-nowrap"
+                className="bg-rose-600 hover:bg-rose-700 text-white px-7 py-4 sm:py-0 font-semibold text-sm transition-colors shadow-lg shadow-rose-600/30 whitespace-nowrap w-full sm:w-auto"
               >
                 Search
               </button>
@@ -593,6 +661,8 @@ export default function Home() {
                 onSelect={(city) => {
                   setLocationLabel(city);
                   setLocationCity(city);
+                  localStorage.setItem('selected_city', city);
+                  window.dispatchEvent(new Event('selected_city_changed'));
                 }}
                 onDetect={() => {
                   setShowLocationDropdown(false);
@@ -632,12 +702,12 @@ export default function Home() {
           )}
 
           {/* Quick stats */}
-          <div className="flex items-center gap-8 mt-8">
+          <div className="grid grid-cols-3 gap-4 sm:flex sm:items-center sm:gap-8 mt-8 border-t border-white/10 pt-6">
             {[["5,000+", "Restaurants"], ["1M+", "Happy Diners"], ["50+", "Cities"]].map(
               ([val, label]) => (
-                <div key={label} className="text-white/80">
-                  <span className="font-bold text-white text-lg">{val}</span>
-                  <span className="text-sm ml-1.5">{label}</span>
+                <div key={label} className="text-white/80 flex flex-col sm:flex-row sm:items-center">
+                  <span className="font-bold text-white text-base sm:text-lg leading-none">{val}</span>
+                  <span className="text-xs sm:text-sm text-white/60 sm:ml-2 mt-1 sm:mt-0 font-medium leading-none">{label}</span>
                 </div>
               )
             )}
@@ -645,28 +715,7 @@ export default function Home() {
         </div>
       </div>
 
-      {/* ── 2. Cuisine Filter Pills ────────────────────────────────────────── */}
-      <div className="bg-white border-b border-slate-100 sticky top-[72px] z-30 shadow-sm">
-        <div className="max-w-7xl mx-auto px-4">
-          <div className="flex items-center gap-2 py-3 overflow-x-auto scrollbar-hide">
-            {filters.map((filter) => (
-              <button
-                key={filter.label}
-                onClick={() => setActiveFilter(filter.label)}
-                className={`shrink-0 flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition-all duration-200 border ${activeFilter === filter.label
-                  ? "bg-rose-600 text-white border-rose-600 shadow-md shadow-rose-200"
-                  : "bg-white text-slate-600 border-slate-200 hover:border-rose-300 hover:text-rose-600"
-                  }`}
-              >
-                <span>{filter.emoji}</span>
-                <span>{filter.label}</span>
-              </button>
-            ))}
-          </div>
-        </div>
-      </div>
-
-      {/* ── Page Body ─────────────────────────────────────────────────────── */}
+      {/* ── Page Body Part 1 (Collections, Promotions, Moods) ───────────────── */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
 
         {/* ── 3. Collections ──────────────────────────────────────────────── */}
@@ -683,20 +732,44 @@ export default function Home() {
                 All collections <ChevronRight size={16} />
               </button>
             </div>
-            <div className="flex gap-4 overflow-x-auto pb-3 scrollbar-hide mt-5">
-              {COLLECTIONS.map((col) => (
-                <CollectionCard key={col.id} collection={col} />
-              ))}
+            <div className="relative mt-5">
+              {/* Left Arrow */}
+              <button 
+                onClick={() => scrollCollections('left')}
+                className="absolute left-2 sm:-left-5 top-1/2 -translate-y-1/2 z-20 bg-white/90 hover:bg-white text-slate-700 w-10 h-10 rounded-full flex items-center justify-center border border-slate-200 shadow-md hover:scale-105 active:scale-95 transition-all cursor-pointer backdrop-blur-sm"
+                aria-label="Scroll left"
+              >
+                <ChevronLeft size={20} />
+              </button>
+
+              {/* Scrollable Container */}
+              <div 
+                ref={collectionsRef}
+                className="flex gap-4 overflow-x-auto pb-3 scrollbar-hide scroll-smooth"
+              >
+                {COLLECTIONS.map((col) => (
+                  <CollectionCard key={col.id} collection={col} />
+                ))}
+              </div>
+
+              {/* Right Arrow */}
+              <button 
+                onClick={() => scrollCollections('right')}
+                className="absolute right-2 sm:-right-5 top-1/2 -translate-y-1/2 z-20 bg-white/90 hover:bg-white text-slate-750 w-10 h-10 rounded-full flex items-center justify-center border border-slate-200 shadow-md hover:scale-105 active:scale-95 transition-all cursor-pointer backdrop-blur-sm"
+                aria-label="Scroll right"
+              >
+                <ChevronRight size={20} />
+              </button>
             </div>
           </section>
         )}
 
         {/* ── 4. Promotional Banner ────────────────────────────────────────── */}
         {!searchQuery && activeFilter === "All" && (
-          <section className="mb-10">
+          <section className="py-6">
             <div
-              className="relative rounded-3xl overflow-hidden"
-              style={{ background: "linear-gradient(135deg, #1e0505 0%, #7f1d1d 50%, #1e0505 100%)" }}
+              className="relative rounded-3xl overflow-hidden shadow-lg"
+              style={{ background: "linear-gradient(135deg, #0a1e2d 0%, #17547d 50%, #0a1e2d 100%)" }}
             >
               <div
                 className="absolute inset-0 opacity-20 bg-cover bg-center"
@@ -705,7 +778,7 @@ export default function Home() {
                     "url(https://images.unsplash.com/photo-1555396273-367ea4eb4db5?w=1200&q=80)",
                 }}
               />
-              <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_70%_50%,rgba(251,191,36,0.15),transparent_60%)]" />
+              <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_70%_50%,rgba(56,189,248,0.15),transparent_60%)]" />
               <div className="relative z-10 flex flex-col md:flex-row items-center justify-between gap-6 p-8 md:p-10">
                 <div>
                   <div className="inline-flex items-center gap-2 bg-amber-400/20 border border-amber-400/30 rounded-full px-3 py-1 mb-4">
@@ -735,8 +808,121 @@ export default function Home() {
           </section>
         )}
 
-        {/* ── 5. Restaurant Listing Grid ───────────────────────────────────── */}
-        <section className={`pb-16 ${(!searchQuery && activeFilter === "All") ? "" : "pt-8"}`}>
+        {/* ── 4.5. In The Mood For Section ────────────────────────────────── */}
+        {!searchQuery && activeFilter === "All" && (
+          <section className="py-8">
+            <div className="flex items-center gap-4 text-center mb-8">
+              <div className="flex-1 h-px bg-slate-200" />
+              <span className="text-slate-400 font-bold text-xs uppercase tracking-[0.25em] whitespace-nowrap">
+                In The Mood For
+              </span>
+              <div className="flex-1 h-px bg-slate-200" />
+            </div>
+
+            {/* Mobile Layout: Rectangular cards (h-32) with bottom-right cropped images */}
+            <div className="grid grid-cols-2 gap-4 md:hidden">
+              {[
+                { title: "Premium dining", image: "https://images.unsplash.com/photo-1544025162-d76694265947?w=150&q=80", query: "Premium" },
+                { title: "Asian flavours", image: "https://images.unsplash.com/photo-1579871494447-9811cf80d66c?w=150&q=80", query: "Asian" },
+                { title: "Family dining", image: "https://images.unsplash.com/photo-1589301760014-d929f3979dbc?w=150&q=80", query: "Family" },
+                { title: "Buffet", image: "https://images.unsplash.com/photo-1504674900247-0877df9cc836?w=150&q=80", query: "Buffet" },
+                { title: "Pure veg", image: "https://images.unsplash.com/photo-1512621776951-a57141f2eefd?w=150&q=80", query: "Veg" },
+                { title: "Outdoor dining", image: "https://images.unsplash.com/photo-1533777857889-4be7c70b33f7?w=150&q=80", query: "Outdoor" },
+                { title: "Romantic dining", image: "https://images.unsplash.com/photo-1510812431401-41d2bd2722f3?w=150&q=80", query: "Romantic" },
+              ].map((mood) => (
+                <button
+                  key={mood.title}
+                  onClick={() => handleMoodSelect(mood.query)}
+                  className="group relative bg-white rounded-2xl border border-slate-100/80 p-4 h-32 overflow-hidden flex flex-col justify-between hover:shadow-md hover:border-slate-200 transition-all cursor-pointer text-left animate-fadeIn"
+                >
+                  <span className="font-bold text-slate-800 text-[13px] leading-tight block max-w-[80%] group-hover:text-rose-600 transition-colors">
+                    {mood.title}
+                  </span>
+                  <div className="absolute bottom-0 right-0 w-20 h-20 overflow-hidden rounded-br-2xl">
+                    <img
+                      src={mood.image}
+                      alt={mood.title}
+                      className="w-full h-full object-cover translate-x-2 translate-y-2 group-hover:scale-105 group-hover:translate-x-1 group-hover:translate-y-1 transition-all duration-350"
+                    />
+                  </div>
+                </button>
+              ))}
+            </div>
+
+            {/* Desktop Layout: Premium Circular Category Bubbles with Zoom-on-Hover and Ring Border */}
+            <div className="hidden md:flex flex-wrap justify-center gap-8 max-w-5xl mx-auto py-2">
+              {[
+                { title: "Premium Dining", image: "https://images.unsplash.com/photo-1544025162-d76694265947?w=300&q=80", query: "Premium" },
+                { title: "Asian Flavours", image: "https://images.unsplash.com/photo-1579871494447-9811cf80d66c?w=300&q=80", query: "Asian" },
+                { title: "Family Dining", image: "https://images.unsplash.com/photo-1589301760014-d929f3979dbc?w=300&q=80", query: "Family" },
+                { title: "Buffet Special", image: "https://images.unsplash.com/photo-1504674900247-0877df9cc836?w=300&q=80", query: "Buffet" },
+                { title: "Pure Vegetarian", image: "https://images.unsplash.com/photo-1512621776951-a57141f2eefd?w=300&q=80", query: "Veg" },
+                { title: "Outdoor Dining", image: "https://images.unsplash.com/photo-1533777857889-4be7c70b33f7?w=300&q=80", query: "Outdoor" },
+                { title: "Romantic Dining", image: "https://images.unsplash.com/photo-1510812431401-41d2bd2722f3?w=300&q=80", query: "Romantic" },
+              ].map((mood) => (
+                <button
+                  key={mood.title}
+                  onClick={() => handleMoodSelect(mood.query)}
+                  className="group flex flex-col items-center text-center cursor-pointer w-28 focus:outline-none"
+                >
+                  {/* Circular Wrapper */}
+                  <div className="relative w-24 h-24 rounded-full overflow-hidden border-2 border-slate-100 group-hover:border-rose-600 group-hover:scale-105 transition-all duration-300 shadow-sm bg-slate-50 flex items-center justify-center">
+                    <img
+                      src={mood.image}
+                      alt={mood.title}
+                      className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"
+                    />
+                    {/* Ring highlight on hover */}
+                    <div className="absolute inset-0 ring-4 ring-rose-500/15 rounded-full opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
+                  </div>
+                  {/* Category Title */}
+                  <span className="text-[13px] font-bold text-slate-700 mt-3 group-hover:text-rose-600 transition-colors tracking-wide leading-tight">
+                    {mood.title}
+                  </span>
+                </button>
+              ))}
+            </div>
+          </section>
+        )}
+
+      </div>
+
+      {/* ── 4.8. Business Type Filter (Cuisine Filter Pills) ─────────────────── */}
+      <div className="sticky top-[146px] md:top-[80px] z-30 bg-white transition-all duration-300">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="flex items-center gap-3 py-3.5 overflow-x-auto scrollbar-hide">
+            {filters.map((f) => {
+              const isActive = activeFilter.toLowerCase() === f.label.toLowerCase();
+              return (
+                <button
+                  key={f.label}
+                  onClick={() => {
+                    setActiveFilter(f.label);
+                    const element = document.getElementById("restaurant-listings");
+                    if (element) {
+                      element.scrollIntoView({ behavior: "smooth" });
+                    }
+                  }}
+                  className={`flex items-center gap-1.5 px-4 py-2 rounded-full text-sm font-semibold whitespace-nowrap transition-all border cursor-pointer ${
+                    isActive
+                      ? "bg-rose-600 border-rose-600 text-white shadow-md shadow-rose-600/10 hover:bg-rose-700"
+                      : "bg-white border-slate-200 text-slate-650 hover:bg-slate-50 hover:border-slate-300"
+                  }`}
+                >
+                  <span className="text-base">{f.emoji}</span>
+                  <span>{f.label}</span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+
+      <div className="bg-white">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+
+          {/* ── 5. Restaurant Listing Grid ───────────────────────────────────── */}
+          <section id="restaurant-listings" className={`pb-16 ${(!searchQuery && activeFilter === "All") ? "" : "pt-8"}`}>
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
             <div>
               <h2 className="text-xl font-bold text-slate-800">
@@ -752,14 +938,14 @@ export default function Home() {
                 )}
               </p>
             </div>
-            
+
             {/* Active Filters & Search Chips */}
             <div className="flex flex-wrap items-center gap-2">
               {searchQuery && (
                 <div className="flex items-center gap-1.5 bg-rose-50 border border-rose-100 text-rose-600 px-3 py-1.5 rounded-full text-xs font-bold shadow-sm">
                   <span>Search: "{searchQuery}"</span>
-                  <button 
-                    onClick={() => { setSearchInput(""); setSearchQuery(""); }} 
+                  <button
+                    onClick={() => { setSearchInput(""); setSearchQuery(""); }}
                     className="hover:bg-rose-100 p-0.5 rounded-full transition-colors flex items-center justify-center"
                     aria-label="Clear search"
                   >
@@ -767,12 +953,12 @@ export default function Home() {
                   </button>
                 </div>
               )}
-              
+
               {activeFilter !== "All" && (
                 <div className="flex items-center gap-1.5 bg-slate-100 border border-slate-200 text-slate-650 px-3 py-1.5 rounded-full text-xs font-bold shadow-sm">
                   <span>Category: {activeFilter}</span>
-                  <button 
-                    onClick={() => setActiveFilter("All")} 
+                  <button
+                    onClick={() => setActiveFilter("All")}
                     className="hover:bg-slate-200 p-0.5 rounded-full transition-colors flex items-center justify-center"
                     aria-label="Clear category filter"
                   >
@@ -831,13 +1017,14 @@ export default function Home() {
               </div>
             </div>
           ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
               {filteredRestaurants.map((restaurant) => (
                 <RestaurantCard key={restaurant.id} restaurant={restaurant} />
               ))}
             </div>
           )}
         </section>
+        </div>
       </div>
 
       {/* ── 6. Footer ─────────────────────────────────────────────────────── */}
