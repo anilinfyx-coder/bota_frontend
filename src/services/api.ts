@@ -28,23 +28,55 @@ export interface Business {
   is_open?: boolean;
   owner_id?: string;
   operating_hours?: Record<string, { open: string; close: string; closed: boolean }>;
+  gallery_images?: string[];
+  menu_images?: string[];
+  dining_offers?: Array<{ type: string; title: string; validity: string }>;
+  amenities?: string[];
+  average_cost?: number;
 }
 
 export interface BusinessSettings {
   id: string;
-  name: string;
+  name?: string;
+  address?: string;
+  cuisine?: string;
   phone?: string;
   description?: string;
   cover_image_url?: string;
-  grace_time_minutes: number;
-  online_allocation_percentage: number;
+  grace_time_minutes?: number;
+  online_allocation_percentage?: number;
   operating_hours?: Record<string, { open: string; close: string; closed: boolean }>;
+  gallery_images?: string[];
+  menu_images?: string[];
+  dining_offers?: Array<{ type: string; title: string; validity: string }>;
+  amenities?: string[];
+  average_cost?: number;
 }
 
 export interface BusinessType {
   id: number;
   name: string;
 }
+
+export interface ReviewReply {
+  id: number;
+  review_id: number;
+  user_name: string;
+  user_type: 'customer' | 'owner';
+  text: string;
+  created_at: string;
+}
+
+export interface Review {
+  id: number;
+  business_id: string;
+  user_name: string;
+  rating: number;
+  text: string;
+  created_at: string;
+  replies?: ReviewReply[];
+}
+
 
 export interface Table {
   id: string;
@@ -109,7 +141,7 @@ export const api = createApi({
       return headers;
     },
   }),
-  tagTypes: ['Businesses', 'Tables', 'Bookings', 'BusinessSettings', 'AdminStats', 'Analytics'],
+  tagTypes: ['Businesses', 'Tables', 'Bookings', 'BusinessSettings', 'AdminStats', 'Analytics', 'Reviews'],
   endpoints: (builder) => ({
 
     // ── Auth ──────────────────────────────────────────────────────────────────
@@ -281,6 +313,44 @@ export const api = createApi({
       invalidatesTags: ['Bookings'],
     }),
 
+    // ── Reviews ──────────────────────────────────────────────────────────────
+
+    getReviews: builder.query<Review[], string>({
+      query: (bizId) => `/reviews/${bizId}`,
+      transformResponse: (res: { data: Review[] }) => res.data || [],
+      providesTags: (_result, _error, bizId) => [{ type: 'Reviews', id: bizId }],
+    }),
+
+    createReview: builder.mutation<
+      { message: string; data: Review; newStats: { rating: number; reviews_count: number } },
+      { businessId: string; user_name: string; rating: number; text: string }
+    >({
+      query: ({ businessId, ...body }) => ({
+        url: `/reviews/${businessId}`,
+        method: 'POST',
+        body,
+      }),
+      invalidatesTags: (_result, _error, { businessId }) => [
+        { type: 'Reviews', id: businessId },
+        { type: 'Businesses', id: businessId },
+        { type: 'Businesses', id: 'ALL' }
+      ],
+    }),
+
+    createReviewReply: builder.mutation<
+      { message: string; data: ReviewReply },
+      { reviewId: number; businessId: string; user_name: string; user_type: string; text: string }
+    >({
+      query: ({ reviewId, ...body }) => ({
+        url: `/reviews/${reviewId}/reply`,
+        method: 'POST',
+        body,
+      }),
+      invalidatesTags: (_result, _error, { businessId }) => [
+        { type: 'Reviews', id: businessId }
+      ],
+    }),
+
     // ── Admin ─────────────────────────────────────────────────────────────────
 
     getAdminStats: builder.query<AdminStats, void>({
@@ -308,6 +378,17 @@ export const api = createApi({
       transformResponse: (res: { data: Analytics }) => res.data,
       providesTags: (_result, _error, bizId) => [{ type: 'Analytics', id: bizId }],
     }),
+
+    // ── Upload ────────────────────────────────────────────────────────────────
+    
+    uploadImage: builder.mutation<{ url: string }, FormData>({
+      query: (formData) => ({
+        url: '/upload',
+        method: 'POST',
+        body: formData,
+      }),
+      invalidatesTags: [],
+    }),
   }),
 });
 
@@ -333,4 +414,8 @@ export const {
   useGetAdminStatsQuery,
   useUpdateSubscriptionMutation,
   useGetAnalyticsQuery,
+  useUploadImageMutation,
+  useGetReviewsQuery,
+  useCreateReviewMutation,
+  useCreateReviewReplyMutation,
 } = api;

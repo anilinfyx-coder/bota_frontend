@@ -10,6 +10,9 @@ import Link from 'next/link';
 import {
   useGetBusinessPublicQuery,
   useCreateBookingMutation,
+  useGetReviewsQuery,
+  useCreateReviewMutation,
+  useCreateReviewReplyMutation
 } from '@/services/api';
 import { useAppSelector, useAppDispatch } from '@/lib/hooks';
 import { loadFromStorage } from '@/features/auth/authSlice';
@@ -171,19 +174,38 @@ const formatSlotLabel = (slot: string) => {
   return `${hour12}:${m.toString().padStart(2, '0')} ${period}`;
 };
 
-interface Review {
-  id: number;
-  user: string;
-  rating: number;
-  date: string;
-  text: string;
-}
 
-const DEFAULT_REVIEWS: Review[] = [
-  { id: 1, user: "Rohan Mehta", rating: 5, date: "Yesterday", text: "Amazing ambiance and very cooperative staff. The table was ready on time. Food is absolutely delicious!" },
-  { id: 2, user: "Aarav Shah", rating: 4, date: "3 days ago", text: "Great experience. Loved the presentation of the continental dishes. Booking through Book My Bota was seamless and saved us from waiting in line." },
-  { id: 3, user: "Priya Patel", rating: 4.5, date: "1 week ago", text: "Lovely cozy place. Recommended for family dinner. The service is prompt." }
-];
+
+const StarRatingInput = ({ value, onChange }: { value: number, onChange: (val: number) => void }) => {
+  return (
+    <div className="flex items-center gap-1">
+      {[1, 2, 3, 4, 5].map((star) => (
+        <div 
+          key={star} 
+          className="relative cursor-pointer"
+          onMouseMove={(e) => {
+            const rect = e.currentTarget.getBoundingClientRect();
+            const x = e.clientX - rect.left;
+            const isHalf = x < rect.width / 2;
+            onChange(isHalf ? star - 0.5 : star);
+          }}
+        >
+          <Star 
+            size={24} 
+            strokeWidth={1.5}
+            className={`${value >= star ? "fill-emerald-500 text-emerald-500" : "text-slate-300 fill-slate-100"} transition-colors`} 
+          />
+          {value === star - 0.5 && (
+            <div className="absolute top-0 left-0 overflow-hidden w-[50%] h-full pointer-events-none">
+              <Star size={24} strokeWidth={1.5} className="fill-emerald-500 text-emerald-500" />
+            </div>
+          )}
+        </div>
+      ))}
+      <span className="ml-2 text-xs font-bold text-slate-500 w-12">{value}</span>
+    </div>
+  );
+};
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
@@ -191,6 +213,9 @@ export default function RestaurantPage({ params }: { params: Promise<{ id: strin
   const resolvedParams = use(params);
   const { data: profile, isLoading } = useGetBusinessPublicQuery(resolvedParams.id);
   const [createBooking] = useCreateBookingMutation();
+  const { data: reviews = [] } = useGetReviewsQuery(resolvedParams.id, { skip: !resolvedParams.id });
+  const [createReview] = useCreateReviewMutation();
+  const [createReviewReply] = useCreateReviewReplyMutation();
 
   // Load current auth user from localStorage — for customer_id linking only
   const dispatch = useAppDispatch();
@@ -213,7 +238,19 @@ export default function RestaurantPage({ params }: { params: Promise<{ id: strin
   const [isLightboxOpen, setIsLightboxOpen] = useState(false);
   const [currentPhotoIdx, setCurrentPhotoIdx] = useState(0);
 
-  const photos = profile ? getPhotosForVenue(profile.type_name, profile.cover_image_url) : [];
+  const uploadedPhotos = [];
+  if (profile?.cover_image_url) {
+    uploadedPhotos.push(profile.cover_image_url);
+  }
+  if (profile?.gallery_images && profile.gallery_images.length > 0) {
+    // avoid duplicates if cover_image_url is somehow in gallery_images
+    const uniqueGallery = profile.gallery_images.filter(img => img !== profile.cover_image_url);
+    uploadedPhotos.push(...uniqueGallery);
+  }
+
+  const photos = profile 
+    ? (uploadedPhotos.length > 0 ? uploadedPhotos : getPhotosForVenue(profile.type_name, profile.cover_image_url)) 
+    : [];
 
   const openLightbox = (index: number) => {
     setCurrentPhotoIdx(index);
@@ -277,7 +314,6 @@ export default function RestaurantPage({ params }: { params: Promise<{ id: strin
   };
 
   // Reviews Local State
-  const [reviews, setReviews] = useState<Review[]>(DEFAULT_REVIEWS);
   const [newReviewText, setNewReviewText] = useState("");
   const [newReviewRating, setNewReviewRating] = useState(5);
   const [newReviewUser, setNewReviewUser] = useState("");
@@ -340,20 +376,50 @@ export default function RestaurantPage({ params }: { params: Promise<{ id: strin
     setPhone('');
   };
 
-  const handleAddReview = (e: React.FormEvent) => {
+  const handleAddReview = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newReviewUser.trim() || !newReviewText.trim()) return;
-    const newRev: Review = {
-      id: Date.now(),
-      user: newReviewUser,
-      rating: newReviewRating,
-      date: "Just now",
-      text: newReviewText
-    };
-    setReviews([newRev, ...reviews]);
-    setNewReviewUser("");
-    setNewReviewText("");
-    setNewReviewRating(5);
+    try {
+      await createReview({
+        businessId: resolvedParams.id,
+        user_name: newReviewUser,
+        rating: newReviewRating,
+        text: newReviewText
+      }).unwrap();
+      setNewReviewUser("");
+      setNewReviewText("");
+      setNewReviewRating(5);
+      alert("Review submitted successfully!");
+    } catch (err) {
+      console.error("Failed to submit review", err);
+      alert("Error submitting review.");
+    }
+  };
+
+  const [replyingToReviewId, setReplyingToReviewId] = useState<number | null>(null);
+  const [replyUser, setReplyUser] = useState("");
+  const [replyText, setReplyText] = useState("");
+
+  const handleAddReply = async (e: React.FormEvent, reviewId: number) => {
+    e.preventDefault();
+    if (!replyText.trim()) return;
+    try {
+      const isOwner = authUser?.business_id === resolvedParams.id;
+      await createReviewReply({
+        reviewId,
+        businessId: resolvedParams.id,
+        user_name: isOwner ? (profile?.name || "Business Owner") : (replyUser || "Customer"),
+        user_type: isOwner ? "owner" : "customer",
+        text: replyText
+      }).unwrap();
+      setReplyText("");
+      setReplyUser("");
+      setReplyingToReviewId(null);
+      alert("Reply added successfully!");
+    } catch (err) {
+      console.error("Failed to submit reply", err);
+      alert("Error submitting reply.");
+    }
   };
 
   const handleCopyAddress = () => {
@@ -397,8 +463,10 @@ export default function RestaurantPage({ params }: { params: Promise<{ id: strin
   }
 
 
-  const menus = getMenuForVenue(profile.type_name);
-  const costText = getCostForTwo(profile.price_range);
+  const menus = profile 
+    ? (profile.menu_images && profile.menu_images.length > 0 ? profile.menu_images : getMenuForVenue(profile.type_name))
+    : [];
+  const costText = profile?.average_cost ? `₹${profile.average_cost} for two (approx.)` : getCostForTwo(profile?.price_range);
   const ratingValue = Number(profile.rating || 4.5).toFixed(1);
   const reviewsCount = profile.reviews_count || 120;
 
@@ -500,67 +568,70 @@ export default function RestaurantPage({ params }: { params: Promise<{ id: strin
 
         {/* ── 2. Image Collage Section (Zomato-Style) ── */}
         <div className="grid grid-cols-4 grid-rows-2 gap-2 h-[260px] md:h-[380px] rounded-2xl overflow-hidden shadow-sm border border-slate-100 mb-6 bg-slate-100">
-          <div
-            onClick={() => openLightbox(0)}
-            className="col-span-4 md:col-span-2 row-span-2 relative overflow-hidden cursor-pointer group"
-          >
-            <img
-              src={photos[0]}
-              alt={`${profile.name} interior`}
-              className="w-full h-full object-cover hover:scale-102 transition-transform duration-500"
-            />
-            {/* View Gallery Badge for Mobile Viewports only */}
-            <div className="absolute bottom-3 right-3 md:hidden bg-black/60 backdrop-blur-[2px] text-white text-xs font-bold px-3 py-1.5 rounded-lg flex items-center gap-1.5 z-10 shadow-md">
-              <ImageIcon size={14} className="text-white" />
-              <span>View Gallery</span>
-              <span className="text-[10px] text-white/70">({photos.length})</span>
-            </div>
-          </div>
-          <div
-            onClick={() => openLightbox(1)}
-            className="hidden md:block col-span-1 row-span-1 relative overflow-hidden cursor-pointer"
-          >
-            <img
-              src={photos[1]}
-              alt="dish picture"
-              className="w-full h-full object-cover hover:scale-105 transition-transform duration-500"
-            />
-          </div>
-          <div
-            onClick={() => openLightbox(2)}
-            className="hidden md:block col-span-1 row-span-1 relative overflow-hidden cursor-pointer"
-          >
-            <img
-              src={photos[2]}
-              alt="beverage"
-              className="w-full h-full object-cover hover:scale-105 transition-transform duration-500"
-            />
-          </div>
-          <div
-            onClick={() => openLightbox(3)}
-            className="hidden md:block col-span-1 row-span-1 relative overflow-hidden cursor-pointer"
-          >
-            <img
-              src={photos[3]}
-              alt="interior design"
-              className="w-full h-full object-cover hover:scale-105 transition-transform duration-500"
-            />
-          </div>
-          <div
-            onClick={() => openLightbox(0)}
-            className="hidden md:block col-span-1 row-span-1 relative overflow-hidden cursor-pointer group"
-          >
-            <img
-              src={photos[4]}
-              alt="gallery preview"
-              className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
-            />
-            <div className="absolute inset-0 bg-black/60 flex flex-col items-center justify-center text-white transition-opacity group-hover:bg-black/75">
-              <ImageIcon size={22} className="mb-1" />
-              <span className="font-bold text-sm tracking-wide">View Gallery</span>
-              <span className="text-[10px] text-white/70">5+ Photos</span>
-            </div>
-          </div>
+          {photos.slice(0, 5).map((photoUrl, idx) => {
+            const total = Math.min(photos.length, 5);
+            const isLastVisible = idx === total - 1;
+            
+            // Calculate dynamic layout classes to fill the grid beautifully
+            let itemClass = "relative overflow-hidden cursor-pointer group";
+            
+            if (total === 1) {
+              itemClass += " col-span-4 row-span-2";
+            } else if (total === 2) {
+              if (idx === 0) itemClass += " col-span-4 md:col-span-2 row-span-2";
+              else itemClass += " hidden md:block col-span-2 row-span-2";
+            } else if (total === 3) {
+              if (idx === 0) itemClass += " col-span-4 md:col-span-2 row-span-2";
+              else itemClass += " hidden md:block col-span-2 row-span-1";
+            } else if (total === 4) {
+              if (idx === 0) itemClass += " col-span-4 md:col-span-2 row-span-2";
+              else if (idx === 1) itemClass += " hidden md:block col-span-2 row-span-1";
+              else itemClass += " hidden md:block col-span-1 row-span-1";
+            } else {
+              if (idx === 0) itemClass += " col-span-4 md:col-span-2 row-span-2";
+              else itemClass += " hidden md:block col-span-1 row-span-1";
+            }
+
+            return (
+              <div
+                key={idx}
+                onClick={() => openLightbox(isLastVisible ? 0 : idx)}
+                className={itemClass}
+              >
+                <img
+                  src={photoUrl}
+                  alt={`gallery item ${idx}`}
+                  className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                />
+                
+                {/* Mobile View Gallery Badge (only on first image) */}
+                {idx === 0 && (
+                  <div className="absolute bottom-3 right-3 md:hidden bg-black/60 backdrop-blur-[2px] text-white text-xs font-bold px-3 py-1.5 rounded-lg flex items-center gap-1.5 z-10 shadow-md">
+                    <ImageIcon size={14} className="text-white" />
+                    <span>View Gallery</span>
+                    <span className="text-[10px] text-white/70">({photos.length})</span>
+                  </div>
+                )}
+                
+                {/* Desktop View Gallery Badge (only if 1 photo total) */}
+                {total === 1 && idx === 0 && (
+                  <div className="hidden md:flex absolute bottom-4 right-4 bg-white/90 backdrop-blur-sm text-slate-900 font-semibold px-4 py-2 rounded-xl items-center gap-2 shadow-lg hover:bg-white transition-colors z-20">
+                    <ImageIcon size={18} />
+                    <span>View Gallery ({photos.length})</span>
+                  </div>
+                )}
+
+                {/* Desktop View Gallery Overlay for last image */}
+                {total > 1 && isLastVisible && (
+                  <div className="absolute inset-0 bg-black/60 flex flex-col items-center justify-center text-white transition-opacity group-hover:bg-black/75">
+                    <ImageIcon size={22} className="mb-1" />
+                    <span className="font-bold text-sm tracking-wide">View Gallery</span>
+                    <span className="text-[10px] text-white/70">{photos.length > 5 ? '5+' : photos.length} Photos</span>
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
 
         {/* ── 3. Venue Title Header ── */}
@@ -668,28 +739,32 @@ export default function RestaurantPage({ params }: { params: Promise<{ id: strin
               <div className="space-y-8">
 
                 {/* Dining Offers */}
-                <section className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm">
-                  <h3 className="text-base font-bold text-slate-800 mb-4 flex items-center gap-1.5">
-                    <Sparkles size={16} className="text-rose-500" /> Dining Offers
-                  </h3>
-                  <div className="w-full">
-                    <div className="p-5 rounded-2xl border border-dashed border-rose-200 bg-gradient-to-r from-rose-50/70 to-rose-50/20 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 transition-all hover:bg-rose-50/80">
-                      <div className="space-y-1.5">
-                        <span className="inline-block text-[10px] font-extrabold uppercase tracking-wider text-rose-600 bg-rose-100/80 px-2.5 py-0.5 rounded-full">
-                          Pre-Book Offer
-                        </span>
-                        <p className="text-base font-extrabold text-slate-800">Flat 10% OFF on booking</p>
-                        <p className="text-xs text-slate-400 font-medium">Valid from 11:00 AM to 11:00 PM</p>
-                      </div>
-                      <button 
-                        onClick={handleQuickBook} 
-                        className="self-start sm:self-center shrink-0 bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold px-4 py-2.5 rounded-xl transition-all shadow-sm shadow-rose-200"
-                      >
-                        Book table to unlock
-                      </button>
+                {profile.dining_offers && profile.dining_offers.length > 0 && (
+                  <section className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm">
+                    <h3 className="text-base font-bold text-slate-800 mb-4 flex items-center gap-1.5">
+                      <Sparkles size={16} className="text-rose-500" /> Dining Offers
+                    </h3>
+                    <div className="w-full space-y-3">
+                      {profile.dining_offers.map((offer: any, idx: number) => (
+                        <div key={idx} className="p-5 rounded-2xl border border-dashed border-rose-200 bg-gradient-to-r from-rose-50/70 to-rose-50/20 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 transition-all hover:bg-rose-50/80">
+                          <div className="space-y-1.5">
+                            <span className="inline-block text-[10px] font-extrabold uppercase tracking-wider text-rose-600 bg-rose-100/80 px-2.5 py-0.5 rounded-full">
+                              {offer.type || 'Offer'}
+                            </span>
+                            <p className="text-base font-extrabold text-slate-800">{offer.title}</p>
+                            <p className="text-xs text-slate-400 font-medium">{offer.validity}</p>
+                          </div>
+                          <button 
+                            onClick={handleQuickBook} 
+                            className="self-start sm:self-center shrink-0 bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold px-4 py-2.5 rounded-xl transition-all shadow-sm shadow-rose-200"
+                          >
+                            Book table to unlock
+                          </button>
+                        </div>
+                      ))}
                     </div>
-                  </div>
-                </section>
+                  </section>
+                )}
 
                 {/* About Venue */}
                 <section className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm">
@@ -719,20 +794,19 @@ export default function RestaurantPage({ params }: { params: Promise<{ id: strin
                 </section>
 
                 {/* More Info checklist */}
-                <section className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm">
-                  <h3 className="text-base font-bold text-slate-800 mb-4">More Info</h3>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    {[
-                      "Indoor seating", "Vegetarian friendly", "Air Conditioned",
-                      "Table Booking Recommended", "Valet parking available", "Card accepted"
-                    ].map((info) => (
-                      <div key={info} className="flex items-center gap-2 text-xs font-semibold text-slate-600">
-                        <CheckCircle size={15} className="text-emerald-500 shrink-0" />
-                        <span>{info}</span>
-                      </div>
-                    ))}
-                  </div>
-                </section>
+                {profile.amenities && profile.amenities.length > 0 && (
+                  <section className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm">
+                    <h3 className="text-base font-bold text-slate-800 mb-4">Venue Amenities</h3>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      {profile.amenities.map((info: string) => (
+                        <div key={info} className="flex items-center gap-2 text-xs font-semibold text-slate-600">
+                          <CheckCircle size={15} className="text-emerald-500 shrink-0" />
+                          <span>{info}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </section>
+                )}
 
                 {/* OpenStreetMap Address Block */}
                 <section className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm">
@@ -780,24 +854,16 @@ export default function RestaurantPage({ params }: { params: Promise<{ id: strin
               <section className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm">
                 <h3 className="text-lg font-bold text-slate-800 mb-5">Menu Card</h3>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div className="rounded-xl overflow-hidden border border-slate-200 group cursor-zoom-in">
-                    <div className="h-[240px] overflow-hidden bg-slate-100">
-                      <img src={menus[0]} alt="Food Menu" className="w-full h-full object-cover group-hover:scale-105 transition-all duration-300" />
+                  {menus.map((menuUrl, idx) => (
+                    <div key={idx} className="rounded-xl overflow-hidden border border-slate-200 group cursor-zoom-in">
+                      <div className="h-[240px] overflow-hidden bg-slate-100">
+                        <img src={menuUrl} alt={`Menu Page ${idx + 1}`} className="w-full h-full object-cover group-hover:scale-105 transition-all duration-300" />
+                      </div>
+                      <div className="p-3 border-t border-slate-200 bg-slate-50">
+                        <p className="text-xs font-bold text-slate-700">Menu Page {idx + 1}</p>
+                      </div>
                     </div>
-                    <div className="p-3 border-t border-slate-200 bg-slate-50">
-                      <p className="text-xs font-bold text-slate-700">Food Menu</p>
-                      <p className="text-[10px] text-slate-400 mt-0.5">1 page</p>
-                    </div>
-                  </div>
-                  <div className="rounded-xl overflow-hidden border border-slate-200 group cursor-zoom-in">
-                    <div className="h-[240px] overflow-hidden bg-slate-100">
-                      <img src={menus[1]} alt="Drinks Menu" className="w-full h-full object-cover group-hover:scale-105 transition-all duration-300" />
-                    </div>
-                    <div className="p-3 border-t border-slate-200 bg-slate-50">
-                      <p className="text-xs font-bold text-slate-700">Beverages Menu</p>
-                      <p className="text-[10px] text-slate-400 mt-0.5">1 page</p>
-                    </div>
-                  </div>
+                  ))}
                 </div>
               </section>
             )}
@@ -841,16 +907,10 @@ export default function RestaurantPage({ params }: { params: Promise<{ id: strin
                         />
                       </div>
                       <div>
-                        <label className="block text-xs font-medium text-slate-400 mb-1">Rating</label>
-                        <select
-                          value={newReviewRating}
-                          onChange={(e) => setNewReviewRating(Number(e.target.value))}
-                          className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs focus:outline-none focus:border-rose-500 appearance-none"
-                        >
-                          {[5, 4, 3, 2, 1].map((val) => (
-                            <option key={val} value={val}>{val} Star{val !== 1 ? 's' : ''}</option>
-                          ))}
-                        </select>
+                        <label className="block text-xs font-medium text-slate-400 mb-2">Rating</label>
+                        <div className="h-9 flex items-center">
+                          <StarRatingInput value={newReviewRating} onChange={setNewReviewRating} />
+                        </div>
                       </div>
                     </div>
                     <div>
@@ -873,15 +933,18 @@ export default function RestaurantPage({ params }: { params: Promise<{ id: strin
                 {/* Review Feed */}
                 <section className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm space-y-5 divide-y divide-slate-100">
                   <h3 className="text-base font-bold text-slate-800 mb-2">User Reviews</h3>
-                  {reviews.map((rev, idx) => (
+                  {reviews.length === 0 && <p className="text-xs text-slate-500 text-center py-4">No reviews yet. Be the first to leave one!</p>}
+                  {reviews.map((rev: any, idx: number) => (
                     <div key={rev.id} className={`${idx > 0 ? "pt-5" : ""} flex gap-3`}>
                       <div className="w-8 h-8 rounded-full bg-slate-100 shrink-0 text-slate-500 font-bold text-xs flex items-center justify-center border border-slate-200">
-                        {rev.user.charAt(0).toUpperCase()}
+                        {(rev.user_name || '?').charAt(0).toUpperCase()}
                       </div>
                       <div className="flex-1">
                         <div className="flex items-center justify-between">
-                          <p className="text-xs font-bold text-slate-800">{rev.user}</p>
-                          <p className="text-[10px] text-slate-400 font-medium">{rev.date}</p>
+                          <p className="text-xs font-bold text-slate-800">{rev.user_name}</p>
+                          <p className="text-[10px] text-slate-400 font-medium">
+                            {new Date(rev.created_at).toLocaleDateString('en-IN', { month: 'short', day: 'numeric', year: 'numeric' })}
+                          </p>
                         </div>
                         <div className="flex items-center gap-1.5 mt-1">
                           <div className="flex items-center gap-0.5 bg-emerald-500/10 border border-emerald-500/25 px-1.5 py-0.5 rounded-md text-[10px] text-emerald-600 font-bold">
@@ -889,7 +952,81 @@ export default function RestaurantPage({ params }: { params: Promise<{ id: strin
                             <Star size={8} className="fill-emerald-600" />
                           </div>
                         </div>
-                        <p className="text-slate-500 text-xs leading-relaxed mt-2.5">{rev.text}</p>
+                        <p className="text-xs text-slate-600 mt-2 leading-relaxed">
+                          {rev.text}
+                        </p>
+
+                        {/* Render Nested Replies */}
+                        {rev.replies && rev.replies.length > 0 && (
+                          <div className="mt-3 space-y-2 pl-4 border-l-2 border-slate-100">
+                            {rev.replies.map((reply: any) => (
+                              <div key={reply.id} className={`p-3 rounded-xl text-xs ${reply.user_type === 'owner' ? 'bg-rose-50 border border-rose-100' : 'bg-slate-50 border border-slate-100'}`}>
+                                <div className="flex items-center justify-between mb-1">
+                                  <span className={`font-bold ${reply.user_type === 'owner' ? 'text-rose-700' : 'text-slate-700'}`}>
+                                    {reply.user_name} {reply.user_type === 'owner' && <span className="ml-1 text-[9px] bg-rose-600 text-white px-1.5 py-0.5 rounded uppercase tracking-wider">Owner</span>}
+                                  </span>
+                                  <span className="text-[10px] text-slate-400">
+                                    {new Date(reply.created_at).toLocaleDateString('en-IN', { month: 'short', day: 'numeric' })}
+                                  </span>
+                                </div>
+                                <p className={reply.user_type === 'owner' ? 'text-rose-900/80' : 'text-slate-600'}>
+                                  {reply.text}
+                                </p>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+
+                        {/* Reply Form Toggle */}
+                        <div className="mt-3">
+                          {replyingToReviewId === rev.id ? (
+                            <form onSubmit={(e) => handleAddReply(e, rev.id)} className="bg-slate-50 p-3 rounded-xl border border-slate-200 mt-2">
+                              <div className="flex items-center gap-2 mb-2">
+                                <input
+                                  type="text"
+                                  required
+                                  value={replyUser}
+                                  onChange={(e) => setReplyUser(e.target.value)}
+                                  placeholder="Your Name"
+                                  className="text-xs border border-slate-200 rounded px-2 py-1 outline-none focus:border-rose-500 w-1/3"
+                                />
+                              </div>
+                              <textarea
+                                required
+                                value={replyText}
+                                onChange={(e) => setReplyText(e.target.value)}
+                                placeholder="Write your reply..."
+                                className="w-full text-xs border border-slate-200 rounded p-2 outline-none focus:border-rose-500 min-h-[60px]"
+                              />
+                              <div className="flex justify-end gap-2 mt-2">
+                                <button 
+                                  type="button" 
+                                  onClick={() => setReplyingToReviewId(null)}
+                                  className="text-xs font-medium text-slate-500 hover:text-slate-700 px-3 py-1.5"
+                                >
+                                  Cancel
+                                </button>
+                                <button 
+                                  type="submit"
+                                  className="text-xs font-bold bg-rose-600 hover:bg-rose-700 text-white px-3 py-1.5 rounded-lg"
+                                >
+                                  Post Reply
+                                </button>
+                              </div>
+                            </form>
+                          ) : (
+                            <button 
+                              onClick={() => {
+                                setReplyingToReviewId(rev.id);
+                                setReplyText("");
+                                setReplyUser("");
+                              }}
+                              className="text-xs font-bold text-slate-500 hover:text-rose-600 transition-colors"
+                            >
+                              Reply to review
+                            </button>
+                          )}
+                        </div>
                       </div>
                     </div>
                   ))}
