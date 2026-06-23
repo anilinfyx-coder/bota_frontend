@@ -84,6 +84,8 @@ export interface AuthUser {
   role: 'super_admin' | 'business_admin' | 'customer';
   business_id?: string;
   customer_id?: string;
+  name?: string;
+  phone?: string;
 }
 
 // ─── RTK Query API ────────────────────────────────────────────────────────────
@@ -273,6 +275,17 @@ export const api = createApi({
       invalidatesTags: (_result, _error, { business_id }) => [{ type: 'Bookings', id: business_id }],
     }),
 
+    phoneLogin: builder.mutation<
+      { token: string; user: AuthUser },
+      { phone: string; otp: string }
+    >({
+      query: (body) => ({
+        url: '/auth/phone-login',
+        method: 'POST',
+        body,
+      }),
+    }),
+
     cancelBooking: builder.mutation<{ success: boolean }, { id: string; refetchId?: string }>({
       query: ({ id }) => ({
         url: `/bookings/${id}/cancel`,
@@ -329,6 +342,7 @@ export const {
   useGetCustomerBookingsQuery,
   useCheckAvailabilityQuery,
   useCreateBookingMutation,
+  usePhoneLoginMutation,
   useCancelBookingMutation,
   useGetAdminStatsQuery,
   useUpdateSubscriptionMutation,

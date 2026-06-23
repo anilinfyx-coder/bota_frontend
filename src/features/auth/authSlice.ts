@@ -6,6 +6,8 @@ interface AuthUser {
   role: 'super_admin' | 'business_admin' | 'customer';
   business_id?: string;
   customer_id?: string;
+  name?: string;
+  phone?: string;
 }
 
 interface AuthState {
