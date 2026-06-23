@@ -31,11 +31,23 @@ function BusinessDashboard() {
     sunday: { open: '10:00', close: '21:00', closed: false },
   });
 
+  const [mealPeriods, setMealPeriods] = useState({
+    breakfast: { open: '08:00', close: '11:00', active: true },
+    lunch: { open: '11:30', close: '16:00', active: true },
+    dinner: { open: '17:00', close: '23:00', active: true },
+  });
+
   useEffect(() => {
     if (settings) {
       setGraceTime(settings.grace_time_minutes ?? 120);
       setAllocation(settings.online_allocation_percentage ?? 50);
-      if (settings.operating_hours) setOperatingHours(settings.operating_hours as any);
+      if (settings.operating_hours) {
+        const { meals, ...hoursOnly } = settings.operating_hours as any;
+        setOperatingHours(hoursOnly);
+        if (meals) {
+          setMealPeriods(meals);
+        }
+      }
     }
   }, [settings]);
 
@@ -47,7 +59,10 @@ function BusinessDashboard() {
         body: { 
           grace_time_minutes: graceTime === '' ? 120 : graceTime, 
           online_allocation_percentage: allocation === '' ? 50 : allocation, 
-          operating_hours: operatingHours 
+          operating_hours: {
+            ...operatingHours,
+            meals: mealPeriods
+          } as any
         } 
       }).unwrap();
       alert('Settings saved to database successfully!');
@@ -301,6 +316,96 @@ function BusinessDashboard() {
                 </div>
               );
             })}
+          </div>
+
+          {/* Meal Periods Section */}
+          <div className="border-t border-white/5 pt-6 mt-4 space-y-4">
+            <div>
+              <div className="flex items-center gap-2 mb-2">
+                <Clock className="text-rose-500" size={20} />
+                <h3 className="text-xl font-bold text-white">Meal Periods Configuration</h3>
+              </div>
+              <p className="text-zinc-400 text-sm">Define custom hours for Breakfast, Lunch, and Dinner timeslots.</p>
+            </div>
+
+            <div className="space-y-3">
+              {Object.entries(mealPeriods).map(([meal, period]: [string, any]) => {
+                const isActive = period.active;
+                return (
+                  <div key={meal} className="flex flex-col sm:flex-row sm:items-center justify-between p-4 bg-slate-50 dark:bg-zinc-900/30 border border-slate-200/50 dark:border-white/5 rounded-2xl gap-4 hover:shadow-sm transition-all duration-200">
+                    <div className="flex items-center gap-3">
+                      <div className="w-24 capitalize text-sm font-bold text-slate-805 dark:text-zinc-200">{meal}</div>
+                      <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-extrabold uppercase tracking-wider border ${
+                        !isActive 
+                          ? 'bg-rose-50 text-rose-600 border-rose-100' 
+                          : 'bg-emerald-50 text-emerald-700 border-emerald-100'
+                      }`}>
+                        {isActive ? 'Active' : 'Inactive'}
+                      </span>
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-4">
+                      {/* Active Toggle */}
+                      <div className="flex items-center gap-2">
+                        <span className="text-[10px] uppercase font-bold tracking-wider text-slate-400 dark:text-zinc-500">Active</span>
+                        <button
+                          type="button"
+                          onClick={() => setMealPeriods(prev => ({
+                            ...prev,
+                            [meal]: { ...prev[meal as keyof typeof prev], active: !isActive }
+                          }))}
+                          className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                            !isActive ? 'bg-slate-350' : 'bg-emerald-500'
+                          }`}
+                        >
+                          <span
+                            className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+                              !isActive ? 'translate-x-0' : 'translate-x-5'
+                            }`}
+                          />
+                        </button>
+                      </div>
+
+                      {isActive ? (
+                        <div className="flex items-center gap-2">
+                          {/* Open Time */}
+                          <div className="flex items-center gap-2 bg-white border border-slate-200 rounded-xl px-3 py-1.5 shadow-sm focus-within:ring-1 focus-within:ring-rose-500/20 focus-within:border-rose-500">
+                            <span className="text-[9px] text-slate-400 font-bold uppercase select-none">From</span>
+                            <input 
+                              type="time" 
+                              value={period.open} 
+                              onChange={(e) => setMealPeriods(prev => ({
+                                ...prev,
+                                [meal]: { ...prev[meal as keyof typeof prev], open: e.target.value }
+                              }))} 
+                              className="bg-transparent text-xs text-slate-800 font-semibold focus:outline-none cursor-pointer border-0 p-0" 
+                            />
+                          </div>
+                          <span className="text-slate-400 text-[10px] font-bold">to</span>
+                          {/* Close Time */}
+                          <div className="flex items-center gap-2 bg-white border border-slate-200 rounded-xl px-3 py-1.5 shadow-sm focus-within:ring-1 focus-within:ring-rose-500/20 focus-within:border-rose-500">
+                            <span className="text-[9px] text-slate-400 font-bold uppercase select-none">To</span>
+                            <input 
+                              type="time" 
+                              value={period.close} 
+                              onChange={(e) => setMealPeriods(prev => ({
+                                ...prev,
+                                [meal]: { ...prev[meal as keyof typeof prev], close: e.target.value }
+                              }))} 
+                              className="bg-transparent text-xs text-slate-800 font-semibold focus:outline-none cursor-pointer border-0 p-0" 
+                            />
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="text-slate-400 text-xs font-semibold italic py-2 pr-4">
+                          Disabled for bookings
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
           </div>
         </div>
       </div>

@@ -4,18 +4,20 @@ import {
   MapPin, Phone, CheckCircle, Calendar, Users, Clock,
   Star, Share2, Compass, MessageSquare, Image as ImageIcon,
   BookOpen, AlertCircle, Sparkles, Copy, ChevronRight, Loader2,
-  ChevronLeft, X
+  ChevronLeft, X, Sun, Moon
 } from 'lucide-react';
 import Link from 'next/link';
 import {
   useGetBusinessPublicQuery,
   useCreateBookingMutation,
+  usePhoneLoginMutation,
+  useRegisterCustomerMutation,
   useGetReviewsQuery,
   useCreateReviewMutation,
   useCreateReviewReplyMutation
 } from '@/services/api';
 import { useAppSelector, useAppDispatch } from '@/lib/hooks';
-import { loadFromStorage } from '@/features/auth/authSlice';
+import { loadFromStorage, setCredentials } from '@/features/auth/authSlice';
 
 // ─── Helpers & Fallback Datasets ──────────────────────────────────────────────
 
@@ -174,14 +176,81 @@ const formatSlotLabel = (slot: string) => {
   return `${hour12}:${m.toString().padStart(2, '0')} ${period}`;
 };
 
+const isSlotInPeriod = (slot: string, openTime: string, closeTime: string) => {
+  const [sh, sm] = openTime.split(':').map(Number);
+  const [eh, em] = closeTime.split(':').map(Number);
+  const [h, m] = slot.split(':').map(Number);
+  const openVal = sh * 60 + sm;
+  const closeVal = eh * 60 + em;
+  const slotVal = h * 60 + m;
 
+  if (closeVal >= openVal) {
+    return slotVal >= openVal && slotVal <= closeVal;
+  } else {
+    // Overnight bounds
+    return slotVal >= openVal || slotVal <= closeVal;
+  }
+};
+
+// Generates slots directly from a meal period's own open/close window.
+// This is independent of the restaurant's daily operating bounds so that
+// e.g. breakfast (07:00–10:30) shows even when the venue opens at 11:00.
+const generateSlotsForMeal = (
+  mealOpen: string,
+  mealClose: string,
+  isToday: boolean
+): string[] => {
+  const slots: string[] = [];
+  const now = new Date();
+  const [openH, openM] = mealOpen.split(':').map(Number);
+  const [closeH, closeM] = mealClose.split(':').map(Number);
+  const openVal = openH * 60 + openM;
+  const closeVal = closeH * 60 + closeM;
+
+  for (let h = 0; h < 24; h++) {
+    for (let m = 0; m < 60; m += 30) {
+      const slotVal = h * 60 + m;
+      let inWindow = false;
+      if (closeVal >= openVal) {
+        inWindow = slotVal >= openVal && slotVal <= closeVal;
+      } else {
+        inWindow = slotVal >= openVal || slotVal <= closeVal;
+      }
+      if (!inWindow) continue;
+      if (isToday) {
+        const slotDate = new Date();
+        slotDate.setHours(h, m, 0, 0);
+        const bufferNow = new Date(now.getTime() + 30 * 60 * 1000);
+        if (slotDate <= bufferNow) continue;
+      }
+      const hour = h.toString().padStart(2, '0');
+      const min = m.toString().padStart(2, '0');
+      slots.push(`${hour}:${min}`);
+    }
+  }
+  return slots;
+};
+
+interface Review {
+  id: number;
+  user: string;
+  rating: number;
+  date: string;
+  text: string;
+}
+
+const DEFAULT_REVIEWS: Review[] = [
+  { id: 1, user: "Rohan Mehta", rating: 5, date: "Yesterday", text: "Amazing ambiance and very cooperative staff. The table was ready on time. Food is absolutely delicious!" },
+  { id: 2, user: "Aarav Shah", rating: 4, date: "3 days ago", text: "Great experience. Loved the presentation of the continental dishes. Booking through Book My Bota was seamless and saved us from waiting in line." },
+  { id: 3, user: "Priya Patel", rating: 4.5, date: "1 week ago", text: "Lovely cozy place. Recommended for family dinner. The service is prompt." }
+];
 
 const StarRatingInput = ({ value, onChange }: { value: number, onChange: (val: number) => void }) => {
   return (
     <div className="flex items-center gap-1">
       {[1, 2, 3, 4, 5].map((star) => (
-        <div 
-          key={star} 
+        <div
+          key={star}
           className="relative cursor-pointer"
           onMouseMove={(e) => {
             const rect = e.currentTarget.getBoundingClientRect();
@@ -190,10 +259,10 @@ const StarRatingInput = ({ value, onChange }: { value: number, onChange: (val: n
             onChange(isHalf ? star - 0.5 : star);
           }}
         >
-          <Star 
-            size={24} 
+          <Star
+            size={24}
             strokeWidth={1.5}
-            className={`${value >= star ? "fill-emerald-500 text-emerald-500" : "text-slate-300 fill-slate-100"} transition-colors`} 
+            className={`${value >= star ? "fill-emerald-500 text-emerald-500" : "text-slate-300 fill-slate-100"} transition-colors`}
           />
           {value === star - 0.5 && (
             <div className="absolute top-0 left-0 overflow-hidden w-[50%] h-full pointer-events-none">
@@ -222,7 +291,12 @@ export default function RestaurantPage({ params }: { params: Promise<{ id: strin
   const authUser = useAppSelector((state) => state.auth.user);
   useEffect(() => { dispatch(loadFromStorage()); }, [dispatch]);
 
-  // Active Tab: Overview, Menu, Photos, Reviews, Book a Table
+  // Scroll to top on restaurant change/mount
+  useEffect(() => {
+    window.scrollTo(0, 0);
+  }, [resolvedParams.id]);
+
+  // Active Tab: Overview, Menu, Photos, Reviews
   const [activeTab, setActiveTab] = useState("Overview");
 
   // Booking Form State — date/time now driven by pill selectors
@@ -233,6 +307,96 @@ export default function RestaurantPage({ params }: { params: Promise<{ id: strin
   const [phone, setPhone] = useState('');
   const [availabilityStatus, setAvailabilityStatus] = useState<string | null>(null);
   const [bookingSuccess, setBookingSuccess] = useState(false);
+
+  // Drawer & Auth states
+  const [isDrawerOpen, setIsDrawerOpen] = useState(false);
+  const [drawerStep, setDrawerStep] = useState(1); // 1: Selections, 2: Login/OTP/Register, 3: Summary, 4: Success
+  // Radio-style meal accordion — only one section open at a time
+  const [activeMealSection, setActiveMealSection] = useState<'breakfast' | 'lunch' | 'dinner' | null>('lunch');
+  const [acceptedTerms, setAcceptedTerms] = useState(false);
+
+  const [loginStep, setLoginStep] = useState(1); // 1: Enter phone, 2: Enter OTP
+  const [loginPhone, setLoginPhone] = useState('');
+  const [loginOtp, setLoginOtp] = useState('');
+  const [isRegisterMode, setIsRegisterMode] = useState(false);
+  const [regName, setRegName] = useState('');
+  const [regEmail, setRegEmail] = useState('');
+  const [regPhone, setRegPhone] = useState('');
+  const [loginError, setLoginError] = useState<string | null>(null);
+
+  const [phoneLogin, { isLoading: isPhoneLoggingIn }] = usePhoneLoginMutation();
+  const [registerCustomer, { isLoading: isRegistering }] = useRegisterCustomerMutation();
+
+  // Pre-fill Name & Phone when authUser changes
+  useEffect(() => {
+    if (authUser && authUser.role === 'customer') {
+      setName(authUser.name || '');
+      setPhone(authUser.phone || '');
+    }
+  }, [authUser]);
+
+  // Handle phone login submission
+  const handlePhoneLoginSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoginError(null);
+    if (loginStep === 1) {
+      if (!loginPhone || loginPhone.replace(/\D/g, '').length < 8) {
+        setLoginError('Please enter a valid phone number.');
+        return;
+      }
+      setLoginStep(2);
+      setLoginOtp('');
+    } else {
+      if (loginOtp !== '123456') {
+        setLoginError('Invalid OTP. For demo purposes, please use 123456.');
+        return;
+      }
+      try {
+        const data = await phoneLogin({ phone: loginPhone, otp: loginOtp }).unwrap();
+        dispatch(setCredentials({ user: data.user, token: data.token }));
+        // Notify the header to update immediately (no page refresh needed)
+        window.dispatchEvent(new Event('auth_changed'));
+        setName(data.user.name || '');
+        setPhone(data.user.phone || loginPhone);
+        setDrawerStep(3);
+      } catch (err: any) {
+        setLoginError(err?.data?.error || 'Login failed. Please try again.');
+      }
+    }
+  };
+
+  // Handle customer registration submission
+  const handleRegisterSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoginError(null);
+    if (!regName || !regEmail || !regPhone) {
+      setLoginError('All fields are required.');
+      return;
+    }
+    try {
+      const data = await registerCustomer({
+        name: regName,
+        email: regEmail,
+        phone: regPhone,
+        password: 'OtpDefaultPassword123'
+      }).unwrap();
+      dispatch(setCredentials({ user: data.user, token: data.token }));
+      // Notify the header to update immediately (no page refresh needed)
+      window.dispatchEvent(new Event('auth_changed'));
+      setName(regName);
+      setPhone(regPhone);
+      setDrawerStep(3);
+    } catch (err: any) {
+      setLoginError(err?.data?.error || 'Registration failed. Please try again.');
+    }
+  };
+
+  // Automatically check availability on Summary step
+  useEffect(() => {
+    if (isDrawerOpen && drawerStep === 3 && selectedTime && resolvedParams.id) {
+      checkAvailability();
+    }
+  }, [isDrawerOpen, drawerStep, selectedTime, guests]);
 
   // Lightbox / Image Zoom & Slider state
   const [isLightboxOpen, setIsLightboxOpen] = useState(false);
@@ -248,8 +412,8 @@ export default function RestaurantPage({ params }: { params: Promise<{ id: strin
     uploadedPhotos.push(...uniqueGallery);
   }
 
-  const photos = profile 
-    ? (uploadedPhotos.length > 0 ? uploadedPhotos : getPhotosForVenue(profile.type_name, profile.cover_image_url)) 
+  const photos = profile
+    ? (uploadedPhotos.length > 0 ? uploadedPhotos : getPhotosForVenue(profile.type_name, profile.cover_image_url))
     : [];
 
   const openLightbox = (index: number) => {
@@ -363,6 +527,7 @@ export default function RestaurantPage({ params }: { params: Promise<{ id: strin
         ...(customerIdPayload ? { customer_id: customerIdPayload } : {}),
       }).unwrap();
       setBookingSuccess(true);
+      setDrawerStep(4);
     } catch {
       alert('Booking failed. Please try again.');
     }
@@ -374,6 +539,7 @@ export default function RestaurantPage({ params }: { params: Promise<{ id: strin
     setSelectedTime('');
     setName('');
     setPhone('');
+    setDrawerStep(1);
   };
 
   const handleAddReview = async (e: React.FormEvent) => {
@@ -430,10 +596,8 @@ export default function RestaurantPage({ params }: { params: Promise<{ id: strin
   };
 
   const handleQuickBook = () => {
-    setActiveTab("Book a Table");
-    setTimeout(() => {
-      bookingWidgetRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    }, 100);
+    setIsDrawerOpen(true);
+    setDrawerStep(1);
   };
 
   if (isLoading) {
@@ -463,7 +627,7 @@ export default function RestaurantPage({ params }: { params: Promise<{ id: strin
   }
 
 
-  const menus = profile 
+  const menus = profile
     ? (profile.menu_images && profile.menu_images.length > 0 ? profile.menu_images : getMenuForVenue(profile.type_name))
     : [];
   const costText = profile?.average_cost ? `₹${profile.average_cost} for two (approx.)` : getCostForTwo(profile?.price_range);
@@ -474,11 +638,11 @@ export default function RestaurantPage({ params }: { params: Promise<{ id: strin
   const daysOfWeek = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
   const todayDayName = daysOfWeek[new Date().getDay()];
   const todayRules = profile?.operating_hours?.[todayDayName];
-  
+
   let todayOpen = "08:00";
   let todayClose = "23:30";
   let isClosedToday = false;
-  
+
   if (todayRules) {
     if (todayRules.closed) {
       isClosedToday = true;
@@ -505,7 +669,7 @@ export default function RestaurantPage({ params }: { params: Promise<{ id: strin
     return `${hours}:${minutes}`;
   };
   const currentFormatted = formatTime24(now);
-  
+
   let isOpenNow = false;
   if (!isClosedToday) {
     if (todayClose > todayOpen) {
@@ -515,11 +679,11 @@ export default function RestaurantPage({ params }: { params: Promise<{ id: strin
       isOpenNow = currentFormatted >= todayOpen || currentFormatted <= todayClose;
     }
   }
-  
+
   const todayOpenFormatted = formatSlotLabel(todayOpen);
   const todayCloseFormatted = formatSlotLabel(todayClose);
-  const timingText = isClosedToday 
-    ? "Closed Today" 
+  const timingText = isClosedToday
+    ? "Closed Today"
     : `${todayOpenFormatted} - ${todayCloseFormatted} (Today)`;
   const cuisines = profile.cuisine || "Continental, Italian, Fast Food";
 
@@ -571,10 +735,10 @@ export default function RestaurantPage({ params }: { params: Promise<{ id: strin
           {photos.slice(0, 5).map((photoUrl, idx) => {
             const total = Math.min(photos.length, 5);
             const isLastVisible = idx === total - 1;
-            
+
             // Calculate dynamic layout classes to fill the grid beautifully
             let itemClass = "relative overflow-hidden cursor-pointer group";
-            
+
             if (total === 1) {
               itemClass += " col-span-4 row-span-2";
             } else if (total === 2) {
@@ -603,7 +767,7 @@ export default function RestaurantPage({ params }: { params: Promise<{ id: strin
                   alt={`gallery item ${idx}`}
                   className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
                 />
-                
+
                 {/* Mobile View Gallery Badge (only on first image) */}
                 {idx === 0 && (
                   <div className="absolute bottom-3 right-3 md:hidden bg-black/60 backdrop-blur-[2px] text-white text-xs font-bold px-3 py-1.5 rounded-lg flex items-center gap-1.5 z-10 shadow-md">
@@ -612,7 +776,7 @@ export default function RestaurantPage({ params }: { params: Promise<{ id: strin
                     <span className="text-[10px] text-white/70">({photos.length})</span>
                   </div>
                 )}
-                
+
                 {/* Desktop View Gallery Badge (only if 1 photo total) */}
                 {total === 1 && idx === 0 && (
                   <div className="hidden md:flex absolute bottom-4 right-4 bg-white/90 backdrop-blur-sm text-slate-900 font-semibold px-4 py-2 rounded-xl items-center gap-2 shadow-lg hover:bg-white transition-colors z-20">
@@ -713,7 +877,7 @@ export default function RestaurantPage({ params }: { params: Promise<{ id: strin
         {/* ── 5. Navigation Tabs ── */}
         <div className="bg-white border-b border-slate-200 sticky top-[72px] z-30 mb-8 -mx-4 px-4">
           <div className="max-w-7xl mx-auto flex gap-6 overflow-x-auto scrollbar-hide">
-            {["Overview", "Menu", "Photos", "Reviews", "Book a Table"].map((tab) => (
+            {["Overview", "Menu", "Photos", "Reviews"].map((tab) => (
               <button
                 key={tab}
                 onClick={() => setActiveTab(tab)}
@@ -732,7 +896,7 @@ export default function RestaurantPage({ params }: { params: Promise<{ id: strin
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-10 items-start">
 
           {/* Main Column */}
-          <div className={`${activeTab === "Book a Table" ? "lg:col-span-3" : "lg:col-span-2"} space-y-8`}>
+          <div className="lg:col-span-2 space-y-8">
 
             {/* Overview Tab Content */}
             {activeTab === "Overview" && (
@@ -754,8 +918,8 @@ export default function RestaurantPage({ params }: { params: Promise<{ id: strin
                             <p className="text-base font-extrabold text-slate-800">{offer.title}</p>
                             <p className="text-xs text-slate-400 font-medium">{offer.validity}</p>
                           </div>
-                          <button 
-                            onClick={handleQuickBook} 
+                          <button
+                            onClick={handleQuickBook}
                             className="self-start sm:self-center shrink-0 bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold px-4 py-2.5 rounded-xl transition-all shadow-sm shadow-rose-200"
                           >
                             Book table to unlock
@@ -999,14 +1163,14 @@ export default function RestaurantPage({ params }: { params: Promise<{ id: strin
                                 className="w-full text-xs border border-slate-200 rounded p-2 outline-none focus:border-rose-500 min-h-[60px]"
                               />
                               <div className="flex justify-end gap-2 mt-2">
-                                <button 
-                                  type="button" 
+                                <button
+                                  type="button"
                                   onClick={() => setReplyingToReviewId(null)}
                                   className="text-xs font-medium text-slate-500 hover:text-slate-700 px-3 py-1.5"
                                 >
                                   Cancel
                                 </button>
-                                <button 
+                                <button
                                   type="submit"
                                   className="text-xs font-bold bg-rose-600 hover:bg-rose-700 text-white px-3 py-1.5 rounded-lg"
                                 >
@@ -1015,7 +1179,7 @@ export default function RestaurantPage({ params }: { params: Promise<{ id: strin
                               </div>
                             </form>
                           ) : (
-                            <button 
+                            <button
                               onClick={() => {
                                 setReplyingToReviewId(rev.id);
                                 setReplyText("");
@@ -1034,199 +1198,198 @@ export default function RestaurantPage({ params }: { params: Promise<{ id: strin
               </div>
             )}
 
-            {/* Book a Table Tab Content */}
-            {activeTab === "Book a Table" && (
-              <section className="bg-white p-6 md:p-8 rounded-2xl border border-slate-100 shadow-sm">
-                <div className="mb-6">
-                  <h3 className="text-xl font-bold text-slate-800">Reserve Your Table</h3>
-                  <p className="text-xs text-slate-400 mt-1">Ensure you have a seat confirmed with no booking fee.</p>
-                </div>
-
-                {bookingSuccess ? (
-                  <div className="text-center py-12 bg-emerald-50/50 rounded-2xl border border-dashed border-emerald-200 max-w-xl mx-auto">
-                    <div className="w-16 h-16 bg-emerald-500/20 text-emerald-500 rounded-full flex items-center justify-center mx-auto mb-4">
-                      <CheckCircle size={32} />
-                    </div>
-                    <h3 className="text-xl font-bold text-slate-800 mb-1">Booking Confirmed!</h3>
-                    <p className="text-slate-500 text-sm max-w-sm mx-auto mb-6">Your table at {profile.name} is successfully reserved. See you soon!</p>
-                    <button
-                      type="button"
-                      onClick={handleResetBooking}
-                      className="bg-rose-600 hover:bg-rose-700 text-white rounded-xl px-5 py-2.5 text-xs font-bold transition-all shadow-md shadow-rose-200 cursor-pointer"
-                    >
-                      Book Another Table
-                    </button>
-                  </div>
-                ) : (
-                  <form onSubmit={handleBook} className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
-                    {/* Left Column: Date & Time Selectors */}
-                    <div className="lg:col-span-7 space-y-6">
-                      {/* Date Pill Row */}
-                      <div className="bg-slate-50/50 border border-slate-100 rounded-2xl p-5">
-                        <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-3 flex items-center gap-1.5"><Calendar size={13} className="text-rose-500" /> Select Date</label>
-                        <div className="flex gap-2 overflow-x-auto pb-1.5 scrollbar-hide">
-                          {bookingDates.map((d, idx) => {
-                            const lbl = formatDateLabel(d, idx);
-                            const active = selectedDateIndex === idx;
-                            return (
-                              <button
-                                key={idx}
-                                type="button"
-                                onClick={() => handleDateSelect(idx)}
-                                className={`flex-shrink-0 flex flex-col items-center px-4.5 py-3 rounded-xl border text-xs font-bold transition-all cursor-pointer ${active
-                                  ? 'bg-rose-600 border-rose-600 text-white shadow-md shadow-rose-600/10'
-                                  : 'bg-white border-slate-200 text-slate-600 hover:border-rose-400 hover:bg-rose-50/30'
-                                  }`}
-                              >
-                                <span className="text-[11px] leading-tight font-extrabold">{lbl.top}</span>
-                                <span className={`text-[10px] mt-0.5 ${active ? 'text-rose-100' : 'text-slate-400'}`}>{lbl.bottom}</span>
-                              </button>
-                            );
-                          })}
-                        </div>
+                  {/* Book a Table Tab Content */}
+                  {activeTab === "Book a Table" && (
+                    <section className="bg-white p-6 md:p-8 rounded-2xl border border-slate-100 shadow-sm">
+                      <div className="mb-6">
+                        <h3 className="text-xl font-bold text-slate-800">Reserve Your Table</h3>
+                        <p className="text-xs text-slate-400 mt-1">Ensure you have a seat confirmed with no booking fee.</p>
                       </div>
 
-                      {/* Time Slot Grid */}
-                      <div className="bg-slate-50/50 border border-slate-100 rounded-2xl p-5">
-                        <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-3 flex items-center gap-1.5"><Clock size={13} className="text-rose-500" /> Select Time</label>
-                        {isSelectedDayClosed ? (
-                          <div className="text-center py-8 bg-white border border-slate-200 rounded-xl">
-                            <p className="text-xs text-rose-500 font-bold">Closed on this day</p>
-                            <p className="text-[10px] text-slate-400 mt-0.5">Please select another date above.</p>
+                      {bookingSuccess ? (
+                        <div className="text-center py-12 bg-emerald-50/50 rounded-2xl border border-dashed border-emerald-200 max-w-xl mx-auto">
+                          <div className="w-16 h-16 bg-emerald-500/20 text-emerald-500 rounded-full flex items-center justify-center mx-auto mb-4">
+                            <CheckCircle size={32} />
                           </div>
-                        ) : timeSlots.length === 0 ? (
-                          <div className="text-center py-8 bg-white border border-slate-200 rounded-xl">
-                            <p className="text-xs text-slate-400 font-medium">No slots available for this date.</p>
-                            <p className="text-[10px] text-slate-400 mt-0.5">Please select another date above.</p>
-                          </div>
-                        ) : (
-                          <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 xl:grid-cols-6 gap-2">
-                            {timeSlots.map((slot) => (
-                              <button
-                                key={slot}
-                                type="button"
-                                onClick={() => handleTimeSelect(slot)}
-                                className={`py-2.5 rounded-xl border text-[11px] font-bold transition-all cursor-pointer ${selectedTime === slot
-                                  ? 'bg-rose-600 border-rose-600 text-white shadow-sm shadow-rose-600/10'
-                                  : 'bg-white border-slate-200 text-slate-600 hover:border-rose-400 hover:bg-rose-50/30'
-                                  }`}
-                              >
-                                {formatSlotLabel(slot)}
-                              </button>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* Right Column: Reservation Form Summary */}
-                    <div className="lg:col-span-5 bg-slate-50 border border-slate-200 rounded-2xl p-6 shadow-sm space-y-5">
-                      <h4 className="text-sm font-bold text-slate-800 border-b border-slate-200 pb-3 flex items-center gap-1.5">
-                        <Users size={16} className="text-rose-500" /> Reservation Details
-                      </h4>
-
-                      {/* Guests selection */}
-                      <div className="space-y-2">
-                        <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider">Party Size</label>
-                        <div className="relative">
-                          <Users size={14} className="absolute left-3.5 top-3.5 text-slate-400 pointer-events-none" />
-                          <select
-                            value={guests}
-                            onChange={(e) => { setGuests(e.target.value); setAvailabilityStatus(null); }}
-                            className="w-full bg-white border border-slate-200 rounded-xl pl-10 pr-8 py-3 text-xs focus:outline-none focus:border-rose-500 appearance-none font-bold text-slate-750 cursor-pointer"
+                          <h3 className="text-xl font-bold text-slate-800 mb-1">Booking Confirmed!</h3>
+                          <p className="text-slate-500 text-sm max-w-sm mx-auto mb-6">Your table at {profile.name} is successfully reserved. See you soon!</p>
+                          <button
+                            type="button"
+                            onClick={handleResetBooking}
+                            className="bg-rose-600 hover:bg-rose-700 text-white rounded-xl px-5 py-2.5 text-xs font-bold transition-all shadow-md shadow-rose-200 cursor-pointer"
                           >
-                            {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((num) => (
-                              <option key={num} value={num}>
-                                {num} {num === 1 ? 'Guest' : 'Guests'}
-                              </option>
-                            ))}
-                          </select>
-                          <div className="absolute right-3.5 top-4 pointer-events-none text-slate-400">
-                            <ChevronRight size={14} className="rotate-90" />
-                          </div>
-                        </div>
-                      </div>
-
-                      {selectedTime && (
-                        <div className="p-3 bg-rose-500/5 border border-rose-500/10 rounded-xl space-y-1">
-                          <p className="text-[11px] text-slate-400 font-bold uppercase tracking-wider">Selected Session</p>
-                          <p className="text-xs text-rose-600 font-extrabold flex items-center gap-1">
-                            <Calendar size={12} />
-                            {bookingDates[selectedDateIndex].toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short' })}
-                            <span className="text-slate-300 font-normal">|</span>
-                            <Clock size={12} />
-                            {formatSlotLabel(selectedTime)}
-                          </p>
-                        </div>
-                      )}
-
-                      {availabilityStatus === null && (
-                        <button 
-                          type="button" 
-                          onClick={checkAvailability} 
-                          className="bg-slate-800 hover:bg-slate-900 text-white rounded-xl w-full py-3.5 text-xs font-bold transition-all shadow-sm cursor-pointer"
-                        >
-                          Check Availability
-                        </button>
-                      )}
-                      
-                      {availabilityStatus === 'loading' && (
-                        <div className="flex justify-center items-center gap-2 py-3.5">
-                          <Loader2 size={16} className="animate-spin text-rose-600" />
-                          <span className="text-slate-400 text-xs font-semibold">Checking seats...</span>
-                        </div>
-                      )}
-                      
-                      {availabilityStatus === 'unavailable' && (
-                        <div className="p-3.5 bg-rose-50 border border-rose-100 rounded-xl text-rose-600 text-xs text-center font-bold">
-                          Sorry, no tables available for this time.
-                        </div>
-                      )}
-                      
-                      {availabilityStatus === 'available' && (
-                        <div className="space-y-4 pt-2">
-                          <div className="p-3 bg-emerald-50 border border-emerald-100 rounded-xl text-emerald-700 text-xs flex items-center justify-center gap-1.5 font-bold">
-                            <CheckCircle size={14} className="text-emerald-600" /> Seats Available! Complete form to book.
-                          </div>
-                          <div className="space-y-1.5">
-                            <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider">Full Name</label>
-                            <input 
-                              type="text" 
-                              required 
-                              value={name} 
-                              onChange={(e) => setName(e.target.value)} 
-                              className="w-full bg-white border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs focus:outline-none focus:border-rose-500 text-slate-800 font-semibold" 
-                              placeholder="John Doe" 
-                            />
-                          </div>
-                          <div className="space-y-1.5">
-                            <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider">Phone Number</label>
-                            <input 
-                              type="tel" 
-                              required 
-                              value={phone} 
-                              onChange={(e) => setPhone(e.target.value)} 
-                              className="w-full bg-white border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs focus:outline-none focus:border-rose-500 text-slate-800 font-semibold" 
-                              placeholder="+91 99000-00000" 
-                            />
-                          </div>
-                          <button 
-                            type="submit" 
-                            className="bg-rose-600 hover:bg-rose-700 text-white rounded-xl w-full py-3.5 text-xs font-bold shadow-md shadow-rose-600/10 hover-lift transition-all cursor-pointer"
-                          >
-                            Confirm Booking
+                            Book Another Table
                           </button>
                         </div>
+                      ) : (
+                        <form onSubmit={handleBook} className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
+                          {/* Left Column: Date & Time Selectors */}
+                          <div className="lg:col-span-7 space-y-6">
+                            {/* Date Pill Row */}
+                            <div className="bg-slate-50/50 border border-slate-100 rounded-2xl p-5">
+                              <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-3 flex items-center gap-1.5"><Calendar size={13} className="text-rose-500" /> Select Date</label>
+                              <div className="flex gap-2 overflow-x-auto pb-1.5 scrollbar-hide">
+                                {bookingDates.map((d, idx) => {
+                                  const lbl = formatDateLabel(d, idx);
+                                  const active = selectedDateIndex === idx;
+                                  return (
+                                    <button
+                                      key={idx}
+                                      type="button"
+                                      onClick={() => handleDateSelect(idx)}
+                                      className={`flex-shrink-0 flex flex-col items-center px-4.5 py-3 rounded-xl border text-xs font-bold transition-all cursor-pointer ${active
+                                        ? 'bg-rose-600 border-rose-600 text-white shadow-md shadow-rose-600/10'
+                                        : 'bg-white border-slate-200 text-slate-600 hover:border-rose-400 hover:bg-rose-50/30'
+                                        }`}
+                                    >
+                                      <span className="text-[11px] leading-tight font-extrabold">{lbl.top}</span>
+                                      <span className={`text-[10px] mt-0.5 ${active ? 'text-rose-100' : 'text-slate-400'}`}>{lbl.bottom}</span>
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            </div>
+
+                            {/* Time Slot Grid */}
+                            <div className="bg-slate-50/50 border border-slate-100 rounded-2xl p-5">
+                              <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-3 flex items-center gap-1.5"><Clock size={13} className="text-rose-500" /> Select Time</label>
+                              {isSelectedDayClosed ? (
+                                <div className="text-center py-8 bg-white border border-slate-200 rounded-xl">
+                                  <p className="text-xs text-rose-500 font-bold">Closed on this day</p>
+                                  <p className="text-[10px] text-slate-400 mt-0.5">Please select another date above.</p>
+                                </div>
+                              ) : timeSlots.length === 0 ? (
+                                <div className="text-center py-8 bg-white border border-slate-200 rounded-xl">
+                                  <p className="text-xs text-slate-400 font-medium">No slots available for this date.</p>
+                                  <p className="text-[10px] text-slate-400 mt-0.5">Please select another date above.</p>
+                                </div>
+                              ) : (
+                                <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 xl:grid-cols-6 gap-2">
+                                  {timeSlots.map((slot) => (
+                                    <button
+                                      key={slot}
+                                      type="button"
+                                      onClick={() => handleTimeSelect(slot)}
+                                      className={`py-2.5 rounded-xl border text-[11px] font-bold transition-all cursor-pointer ${selectedTime === slot
+                                        ? 'bg-rose-600 border-rose-600 text-white shadow-sm shadow-rose-600/10'
+                                        : 'bg-white border-slate-200 text-slate-600 hover:border-rose-400 hover:bg-rose-50/30'
+                                        }`}
+                                    >
+                                      {formatSlotLabel(slot)}
+                                    </button>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+
+                          {/* Right Column: Reservation Form Summary */}
+                          <div className="lg:col-span-5 bg-slate-50 border border-slate-200 rounded-2xl p-6 shadow-sm space-y-5">
+                            <h4 className="text-sm font-bold text-slate-800 border-b border-slate-200 pb-3 flex items-center gap-1.5">
+                              <Users size={16} className="text-rose-500" /> Reservation Details
+                            </h4>
+
+                            {/* Guests selection */}
+                            <div className="space-y-2">
+                              <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider">Party Size</label>
+                              <div className="relative">
+                                <Users size={14} className="absolute left-3.5 top-3.5 text-slate-400 pointer-events-none" />
+                                <select
+                                  value={guests}
+                                  onChange={(e) => { setGuests(e.target.value); setAvailabilityStatus(null); }}
+                                  className="w-full bg-white border border-slate-200 rounded-xl pl-10 pr-8 py-3 text-xs focus:outline-none focus:border-rose-500 appearance-none font-bold text-slate-750 cursor-pointer"
+                                >
+                                  {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((num) => (
+                                    <option key={num} value={num}>
+                                      {num} {num === 1 ? 'Guest' : 'Guests'}
+                                    </option>
+                                  ))}
+                                </select>
+                                <div className="absolute right-3.5 top-4 pointer-events-none text-slate-400">
+                                  <ChevronRight size={14} className="rotate-90" />
+                                </div>
+                              </div>
+                            </div>
+
+                            {selectedTime && (
+                              <div className="p-3 bg-rose-500/5 border border-rose-500/10 rounded-xl space-y-1">
+                                <p className="text-[11px] text-slate-400 font-bold uppercase tracking-wider">Selected Session</p>
+                                <p className="text-xs text-rose-600 font-extrabold flex items-center gap-1">
+                                  <Calendar size={12} />
+                                  {bookingDates[selectedDateIndex].toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short' })}
+                                  <span className="text-slate-300 font-normal">|</span>
+                                  <Clock size={12} />
+                                  {formatSlotLabel(selectedTime)}
+                                </p>
+                              </div>
+                            )}
+
+                            {availabilityStatus === null && (
+                              <button
+                                type="button"
+                                onClick={checkAvailability}
+                                className="bg-slate-800 hover:bg-slate-900 text-white rounded-xl w-full py-3.5 text-xs font-bold transition-all shadow-sm cursor-pointer"
+                              >
+                                Check Availability
+                              </button>
+                            )}
+
+                            {availabilityStatus === 'loading' && (
+                              <div className="flex justify-center items-center gap-2 py-3.5">
+                                <Loader2 size={16} className="animate-spin text-rose-600" />
+                                <span className="text-slate-400 text-xs font-semibold">Checking seats...</span>
+                              </div>
+                            )}
+
+                            {availabilityStatus === 'unavailable' && (
+                              <div className="p-3.5 bg-rose-50 border border-rose-100 rounded-xl text-rose-600 text-xs text-center font-bold">
+                                Sorry, no tables available for this time.
+                              </div>
+                            )}
+
+                            {availabilityStatus === 'available' && (
+                              <div className="space-y-4 pt-2">
+                                <div className="p-3 bg-emerald-50 border border-emerald-100 rounded-xl text-emerald-700 text-xs flex items-center justify-center gap-1.5 font-bold">
+                                  <CheckCircle size={14} className="text-emerald-600" /> Seats Available! Complete form to book.
+                                </div>
+                                <div className="space-y-1.5">
+                                  <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider">Full Name</label>
+                                  <input
+                                    type="text"
+                                    required
+                                    value={name}
+                                    onChange={(e) => setName(e.target.value)}
+                                    className="w-full bg-white border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs focus:outline-none focus:border-rose-500 text-slate-800 font-semibold"
+                                    placeholder="John Doe"
+                                  />
+                                </div>
+                                <div className="space-y-1.5">
+                                  <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider">Phone Number</label>
+                                  <input
+                                    type="tel"
+                                    required
+                                    value={phone}
+                                    onChange={(e) => setPhone(e.target.value)}
+                                    className="w-full bg-white border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs focus:outline-none focus:border-rose-500 text-slate-800 font-semibold"
+                                    placeholder="+91 99000-00000"
+                                  />
+                                </div>
+                                <button
+                                  type="submit"
+                                  className="bg-rose-600 hover:bg-rose-700 text-white rounded-xl w-full py-3.5 text-xs font-bold shadow-md shadow-rose-600/10 hover-lift transition-all cursor-pointer"
+                                >
+                                  Confirm Booking
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        </form>
                       )}
-                    </div>
-                  </form>
-                )}
-              </section>
-            )}
-          </div>
+                    </section>
+                  )}
+              </div>
 
           {/* Right Sidebar Column */}
-          {activeTab !== "Book a Table" && (
             <div ref={bookingWidgetRef} className="lg:col-span-1 space-y-6 lg:sticky lg:top-24">
 
               {/* Table Reservation Widget */}
@@ -1289,9 +1452,8 @@ export default function RestaurantPage({ params }: { params: Promise<{ id: strin
                   <button
                     type="button"
                     onClick={() => {
-                      setActiveTab("Book a Table");
-                      // Smooth scroll down to Book Table Tab
-                      window.scrollTo({ top: 380, behavior: 'smooth' });
+                      setIsDrawerOpen(true);
+                      setDrawerStep(1);
                     }}
                     className="bg-rose-500 hover:bg-rose-600 text-white rounded-xl w-full py-2.5 text-xs font-bold transition-all shadow-md shadow-rose-200 cursor-pointer flex items-center justify-center gap-1.5"
                   >
@@ -1318,7 +1480,7 @@ export default function RestaurantPage({ params }: { params: Promise<{ id: strin
                       const dayName = day.charAt(0).toUpperCase() + day.slice(1, 3);
                       const rules = profile.operating_hours?.[day];
                       let timeStr = "";
-                      
+
                       if (rules) {
                         if (rules.closed) {
                           timeStr = "Closed";
@@ -1351,77 +1513,754 @@ export default function RestaurantPage({ params }: { params: Promise<{ id: strin
               </div>
 
             </div>
-          )}
+
+          </div>
 
         </div>
 
-      </div>
-
-      {/* ── 7. Lightbox / Image Slider Modal ── */}
-      {isLightboxOpen && (
-        <div className="fixed inset-0 z-50 bg-black/95 flex flex-col justify-between py-6 px-4 select-none animate-fadeIn">
-          {/* Header */}
-          <div className="flex justify-between items-center max-w-7xl mx-auto w-full text-white">
-            <span className="text-sm font-semibold tracking-wider text-slate-300 font-mono">
-              {currentPhotoIdx + 1} / {photos.length}
-            </span>
-            <button
-              onClick={closeLightbox}
-              className="p-2 hover:bg-white/10 rounded-full transition-colors text-white cursor-pointer"
-              aria-label="Close gallery"
-            >
-              <X size={24} />
-            </button>
-          </div>
-
-          {/* Main Content Area */}
-          <div className="flex-1 flex items-center justify-between max-w-7xl mx-auto w-full gap-4 my-4 relative">
-            {/* Left Button */}
-            <button
-              onClick={prevPhoto}
-              className="p-3 bg-white/5 hover:bg-white/15 active:scale-95 text-white rounded-full transition-all cursor-pointer backdrop-blur-sm shadow-lg border border-white/10"
-              aria-label="Previous image"
-            >
-              <ChevronLeft size={24} />
-            </button>
-
-            {/* Current Image Container */}
-            <div className="flex-1 h-full flex items-center justify-center overflow-hidden px-2">
-              <img
-                src={photos[currentPhotoIdx]}
-                alt={`Gallery image ${currentPhotoIdx + 1}`}
-                className="max-h-[70vh] max-w-full object-contain rounded-xl shadow-2xl transition-all duration-300 select-none pointer-events-none"
-              />
+        {/* ── 7. Lightbox / Image Slider Modal ── */}
+        {isLightboxOpen && (
+          <div className="fixed inset-0 z-50 bg-black/95 flex flex-col justify-between py-6 px-4 select-none animate-fadeIn">
+            {/* Header */}
+            <div className="flex justify-between items-center max-w-7xl mx-auto w-full text-white">
+              <span className="text-sm font-semibold tracking-wider text-slate-300 font-mono">
+                {currentPhotoIdx + 1} / {photos.length}
+              </span>
+              <button
+                onClick={closeLightbox}
+                className="p-2 hover:bg-white/10 rounded-full transition-colors text-white cursor-pointer"
+                aria-label="Close gallery"
+              >
+                <X size={24} />
+              </button>
             </div>
 
-            {/* Right Button */}
-            <button
-              onClick={nextPhoto}
-              className="p-3 bg-white/5 hover:bg-white/15 active:scale-95 text-white rounded-full transition-all cursor-pointer backdrop-blur-sm shadow-lg border border-white/10"
-              aria-label="Next image"
-            >
-              <ChevronRight size={24} />
-            </button>
-          </div>
-
-          {/* Thumbnails Row */}
-          <div className="max-w-4xl mx-auto w-full overflow-x-auto py-2 flex justify-center gap-2.5 px-4 scrollbar-hide">
-            {photos.map((url, idx) => (
+            {/* Main Content Area */}
+            <div className="flex-1 flex items-center justify-between max-w-7xl mx-auto w-full gap-4 my-4 relative">
+              {/* Left Button */}
               <button
-                key={idx}
-                onClick={() => setCurrentPhotoIdx(idx)}
-                className={`w-16 h-12 rounded-lg overflow-hidden shrink-0 transition-all border-2 cursor-pointer ${currentPhotoIdx === idx
-                  ? 'border-rose-500 scale-105 opacity-100 shadow-md'
-                  : 'border-transparent opacity-50 hover:opacity-80'
-                  }`}
+                onClick={prevPhoto}
+                className="p-3 bg-white/5 hover:bg-white/15 active:scale-95 text-white rounded-full transition-all cursor-pointer backdrop-blur-sm shadow-lg border border-white/10"
+                aria-label="Previous image"
               >
-                <img src={url} alt={`thumb ${idx}`} className="w-full h-full object-cover" />
+                <ChevronLeft size={24} />
               </button>
-            ))}
-          </div>
 
+              {/* Current Image Container */}
+              <div className="flex-1 h-full flex items-center justify-center overflow-hidden px-2">
+                <img
+                  src={photos[currentPhotoIdx]}
+                  alt={`Gallery image ${currentPhotoIdx + 1}`}
+                  className="max-h-[70vh] max-w-full object-contain rounded-xl shadow-2xl transition-all duration-300 select-none pointer-events-none"
+                />
+              </div>
+
+              {/* Right Button */}
+              <button
+                onClick={nextPhoto}
+                className="p-3 bg-white/5 hover:bg-white/15 active:scale-95 text-white rounded-full transition-all cursor-pointer backdrop-blur-sm shadow-lg border border-white/10"
+                aria-label="Next image"
+              >
+                <ChevronRight size={24} />
+              </button>
+            </div>
+
+            {/* Thumbnails Row */}
+            <div className="max-w-4xl mx-auto w-full overflow-x-auto py-2 flex justify-center gap-2.5 px-4 scrollbar-hide">
+              {photos.map((url, idx) => (
+                <button
+                  key={idx}
+                  onClick={() => setCurrentPhotoIdx(idx)}
+                  className={`w-16 h-12 rounded-lg overflow-hidden shrink-0 transition-all border-2 cursor-pointer ${currentPhotoIdx === idx
+                    ? 'border-rose-500 scale-105 opacity-100 shadow-md'
+                    : 'border-transparent opacity-50 hover:opacity-80'
+                    }`}
+                >
+                  <img src={url} alt={`thumb ${idx}`} className="w-full h-full object-cover" />
+                </button>
+              ))}
+            </div>
+
+          </div>
+        )}
+
+        {/* ── 8. Right-side sliding Book a Table Drawer ── */}
+        <div
+          className={`fixed inset-0 z-50 overflow-hidden transition-all duration-300 ${isDrawerOpen ? 'pointer-events-auto' : 'pointer-events-none'
+            }`}
+        >
+          {/* Backdrop overlay */}
+          <div
+            onClick={() => setIsDrawerOpen(false)}
+            className={`absolute inset-0 bg-black/60 transition-opacity duration-300 ${isDrawerOpen ? 'opacity-100' : 'opacity-0'
+              }`}
+          />
+
+          {/* Drawer Panel */}
+          <div
+            className={`absolute inset-y-0 right-0 w-full sm:w-[520px] md:w-[580px] lg:w-[620px] bg-white shadow-2xl flex flex-col transition-transform duration-300 ease-out transform ${isDrawerOpen ? 'translate-x-0' : 'translate-x-full'
+              }`}
+          >
+            {/* Drawer Header */}
+            <div className="p-4 border-b border-slate-100 flex items-center gap-3 shrink-0 bg-white">
+              <button
+                onClick={() => {
+                  if (drawerStep > 1 && drawerStep !== 4) {
+                    setDrawerStep(prev => prev - 1);
+                  } else {
+                    setIsDrawerOpen(false);
+                  }
+                }}
+                className="p-1 hover:bg-slate-100 rounded-full transition-colors cursor-pointer text-slate-500"
+              >
+                <ChevronLeft size={20} />
+              </button>
+              <div>
+                <h3 className="text-base font-extrabold text-slate-800">
+                  {drawerStep === 1 && 'Book Table'}
+                  {drawerStep === 2 && (isRegisterMode ? 'Create Account' : loginStep === 2 ? 'Verify OTP' : 'Verify Mobile Number')}
+                  {drawerStep === 3 && 'Confirm Booking'}
+                  {drawerStep === 4 && 'Booking Confirmed'}
+                </h3>
+                <p className="text-[11px] text-slate-500 font-semibold">{profile.name}{profile.address ? `, ${profile.address.split(',')[0]}` : ''}</p>
+              </div>
+              <button
+                onClick={() => setIsDrawerOpen(false)}
+                className="ml-auto p-1.5 hover:bg-slate-100 rounded-full transition-colors text-slate-400 cursor-pointer"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* Drawer Content */}
+            <div className="flex-1 overflow-y-auto p-5 bg-slate-50/50">
+              {drawerStep === 1 && (() => {
+                const mealsConfig = (profile.operating_hours as any)?.meals || {
+                  breakfast: { open: '08:00', close: '11:00', active: true },
+                  lunch: { open: '11:30', close: '16:00', active: true },
+                  dinner: { open: '17:00', close: '23:00', active: true }
+                };
+
+                const isToday = selectedDateIndex === 0;
+                // Generate slots per meal period directly from that period's own time window
+                // so breakfast/lunch/dinner slots are NOT limited by the restaurant's daily open/close.
+                const breakfastSlots = mealsConfig.breakfast?.active
+                  ? generateSlotsForMeal(mealsConfig.breakfast.open, mealsConfig.breakfast.close, isToday)
+                  : [];
+                const lunchSlots = mealsConfig.lunch?.active
+                  ? generateSlotsForMeal(mealsConfig.lunch.open, mealsConfig.lunch.close, isToday)
+                  : [];
+                const dinnerSlots = mealsConfig.dinner?.active
+                  ? generateSlotsForMeal(mealsConfig.dinner.open, mealsConfig.dinner.close, isToday)
+                  : [];
+
+                return (
+                  <div className="space-y-6">
+                    {/* 1. Guests selection */}
+                    <div>
+                      <h4 className="text-sm font-bold text-slate-800 mb-3 tracking-tight">Number of guest(s)</h4>
+                      <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
+                        {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((num) => {
+                          const active = Number(guests) === num;
+                          return (
+                            <button
+                              key={num}
+                              type="button"
+                              onClick={() => setGuests(num.toString())}
+                              className={`w-10 h-10 shrink-0 rounded-full border text-sm font-extrabold flex items-center justify-center transition-all cursor-pointer ${active
+                                ? 'border-orange-500 bg-orange-50 text-orange-600 font-black shadow-sm ring-1 ring-orange-400'
+                                : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50'
+                                }`}
+                            >
+                              {num}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    {/* 2. Date selection */}
+                    <div>
+                      <h4 className="text-sm font-bold text-slate-800 mb-3 tracking-tight">When are you visiting?</h4>
+                      <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
+                        {bookingDates.map((d, idx) => {
+                          const lbl = formatDateLabel(d, idx);
+                          const active = selectedDateIndex === idx;
+
+                          const day = d.getDay();
+                          const promoText = (day === 5 || day === 6 || day === 0) ? '15% off' : '20% off';
+
+                          return (
+                            <button
+                              key={idx}
+                              type="button"
+                              onClick={() => handleDateSelect(idx)}
+                              className={`shrink-0 flex flex-col items-center py-2.5 px-3 rounded-2xl border text-xs font-bold transition-all cursor-pointer min-w-[68px] ${active
+                                ? 'border-orange-500 bg-orange-50 text-orange-600 shadow-sm ring-1 ring-orange-400'
+                                : 'bg-white border-slate-200 text-slate-700 hover:border-slate-300'
+                                }`}
+                            >
+                              <span className={`text-[9px] uppercase font-bold tracking-wider ${active ? 'text-orange-500' : 'text-slate-400'}`}>
+                                {lbl.top}
+                              </span>
+                              <span className="text-sm font-extrabold mt-0.5">{lbl.bottom}</span>
+                              <span className="inline-block mt-1.5 text-[8px] font-black uppercase bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded-md">
+                                {promoText}
+                              </span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    {/* 3. Time selection */}
+                    <div className="space-y-3">
+                      <h4 className="text-sm font-bold text-slate-800 tracking-tight">Select the time of day to see the offers</h4>
+
+                      {isSelectedDayClosed ? (
+                        <div className="text-center py-8 bg-white border border-slate-200 rounded-2xl">
+                          <p className="text-xs text-rose-500 font-bold">Closed on this day</p>
+                          <p className="text-[10px] text-slate-400 mt-0.5">Please select another date above.</p>
+                        </div>
+                      ) : (breakfastSlots.length === 0 && lunchSlots.length === 0 && dinnerSlots.length === 0 && !mealsConfig.breakfast?.active && !mealsConfig.lunch?.active && !mealsConfig.dinner?.active) ? (
+                        <div className="text-center py-8 bg-white border border-slate-200 rounded-2xl">
+                          <p className="text-xs text-slate-400 font-medium">No slots available for this date.</p>
+                          <p className="text-[10px] text-slate-400 mt-0.5">Please select another date above.</p>
+                        </div>
+                      ) : (
+                        <>
+                          {/* Breakfast Accordion — hidden on Today if all breakfast slots have passed */}
+                          {mealsConfig.breakfast?.active && (!isToday || breakfastSlots.length > 0) && (
+                            <div className="space-y-2">
+                              <button
+                                type="button"
+                                onClick={() => setActiveMealSection(prev => prev === 'breakfast' ? null : 'breakfast')}
+                                className={`w-full flex items-center justify-between p-3 border rounded-2xl text-left cursor-pointer transition-all ${activeMealSection === 'breakfast' ? 'bg-rose-50 border-rose-200' : 'bg-white border-slate-200 hover:bg-slate-50/50'
+                                  }`}
+                              >
+                                <div className="flex items-center gap-3">
+                                  <div className={`p-2 rounded-xl ${activeMealSection === 'breakfast' ? 'bg-rose-500/15 text-rose-600' : 'bg-rose-500/10 text-rose-500'}`}>
+                                    <Clock size={18} />
+                                  </div>
+                                  <div>
+                                    <span className="text-sm font-extrabold text-slate-800">Breakfast</span>
+                                    <p className="text-[10px] text-slate-400 font-semibold mt-0.5">
+                                      {formatSlotLabel(mealsConfig.breakfast.open)} – {formatSlotLabel(mealsConfig.breakfast.close)}
+                                    </p>
+                                  </div>
+                                </div>
+                                <ChevronRight size={16} className={`text-slate-400 transition-transform duration-200 ${activeMealSection === 'breakfast' ? 'rotate-90' : ''}`} />
+                              </button>
+                              {activeMealSection === 'breakfast' && (
+                                <div className="grid grid-cols-3 gap-2 pt-1">
+                                  {breakfastSlots.map((slot) => {
+                                    const isSelected = selectedTime === slot;
+                                    const day = bookingDates[selectedDateIndex].getDay();
+                                    const promoText = (day === 5 || day === 6 || day === 0) ? '15% off' : '20% off';
+                                    return (
+                                      <button
+                                        key={slot}
+                                        type="button"
+                                        onClick={() => handleTimeSelect(slot)}
+                                        className={`py-3 px-2 rounded-2xl border text-center transition-all cursor-pointer flex flex-col items-center justify-center ${isSelected
+                                          ? 'border-orange-500 bg-orange-50 text-orange-600 shadow-sm ring-1 ring-orange-400'
+                                          : 'bg-white border-slate-200 text-slate-700 hover:border-slate-300'
+                                          }`}
+                                      >
+                                        <span className="text-[11px] font-extrabold">{formatSlotLabel(slot)}</span>
+                                        <span className="text-[8px] font-black text-emerald-600 mt-0.5 uppercase tracking-wide">{promoText}</span>
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                              )}
+                            </div>
+                          )}
+
+                          {/* Lunch Accordion — hidden on Today if all lunch slots have passed */}
+                          {mealsConfig.lunch?.active && (!isToday || lunchSlots.length > 0) && (
+                            <div className="space-y-2">
+                              <button
+                                type="button"
+                                onClick={() => setActiveMealSection(prev => prev === 'lunch' ? null : 'lunch')}
+                                className={`w-full flex items-center justify-between p-3 border rounded-2xl text-left cursor-pointer transition-all ${activeMealSection === 'lunch' ? 'bg-amber-50 border-amber-200' : 'bg-white border-slate-200 hover:bg-slate-50/50'
+                                  }`}
+                              >
+                                <div className="flex items-center gap-3">
+                                  <div className={`p-2 rounded-xl ${activeMealSection === 'lunch' ? 'bg-amber-500/15 text-amber-600' : 'bg-amber-500/10 text-amber-500'}`}>
+                                    <Sun size={18} />
+                                  </div>
+                                  <div>
+                                    <span className="text-sm font-extrabold text-slate-800">Lunch</span>
+                                    <p className="text-[10px] text-slate-400 font-semibold mt-0.5">
+                                      {formatSlotLabel(mealsConfig.lunch.open)} – {formatSlotLabel(mealsConfig.lunch.close)}
+                                    </p>
+                                  </div>
+                                </div>
+                                <ChevronRight size={16} className={`text-slate-400 transition-transform duration-200 ${activeMealSection === 'lunch' ? 'rotate-90' : ''}`} />
+                              </button>
+                              {activeMealSection === 'lunch' && (
+                                <div className="grid grid-cols-3 gap-2 pt-1">
+                                  {lunchSlots.map((slot) => {
+                                    const isSelected = selectedTime === slot;
+                                    const day = bookingDates[selectedDateIndex].getDay();
+                                    const promoText = (day === 5 || day === 6 || day === 0) ? '15% off' : '20% off';
+                                    return (
+                                      <button
+                                        key={slot}
+                                        type="button"
+                                        onClick={() => handleTimeSelect(slot)}
+                                        className={`py-3 px-2 rounded-2xl border text-center transition-all cursor-pointer flex flex-col items-center justify-center ${isSelected
+                                          ? 'border-orange-500 bg-orange-50 text-orange-600 shadow-sm ring-1 ring-orange-400'
+                                          : 'bg-white border-slate-200 text-slate-700 hover:border-slate-300'
+                                          }`}
+                                      >
+                                        <span className="text-[11px] font-extrabold">{formatSlotLabel(slot)}</span>
+                                        <span className="text-[8px] font-black text-emerald-600 mt-0.5 uppercase tracking-wide">{promoText}</span>
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                              )}
+                            </div>
+                          )}
+
+                          {/* Dinner Accordion — hidden on Today if all dinner slots have passed */}
+                          {mealsConfig.dinner?.active && (!isToday || dinnerSlots.length > 0) && (
+                            <div className="space-y-2">
+                              <button
+                                type="button"
+                                onClick={() => setActiveMealSection(prev => prev === 'dinner' ? null : 'dinner')}
+                                className={`w-full flex items-center justify-between p-3 border rounded-2xl text-left cursor-pointer transition-all ${activeMealSection === 'dinner' ? 'bg-indigo-50 border-indigo-200' : 'bg-white border-slate-200 hover:bg-slate-50/50'
+                                  }`}
+                              >
+                                <div className="flex items-center gap-3">
+                                  <div className={`p-2 rounded-xl ${activeMealSection === 'dinner' ? 'bg-indigo-500/15 text-indigo-600' : 'bg-indigo-500/10 text-indigo-500'}`}>
+                                    <Moon size={18} />
+                                  </div>
+                                  <div>
+                                    <span className="text-sm font-extrabold text-slate-800">Dinner</span>
+                                    <p className="text-[10px] text-slate-400 font-semibold mt-0.5">
+                                      {formatSlotLabel(mealsConfig.dinner.open)} – {formatSlotLabel(mealsConfig.dinner.close)}
+                                    </p>
+                                  </div>
+                                </div>
+                                <ChevronRight size={16} className={`text-slate-400 transition-transform duration-200 ${activeMealSection === 'dinner' ? 'rotate-90' : ''}`} />
+                              </button>
+                              {activeMealSection === 'dinner' && (
+                                <div className="grid grid-cols-3 gap-2 pt-1">
+                                  {dinnerSlots.map((slot) => {
+                                    const isSelected = selectedTime === slot;
+                                    const day = bookingDates[selectedDateIndex].getDay();
+                                    const promoText = (day === 5 || day === 6 || day === 0) ? '15% off' : '20% off';
+                                    return (
+                                      <button
+                                        key={slot}
+                                        type="button"
+                                        onClick={() => handleTimeSelect(slot)}
+                                        className={`py-3 px-2 rounded-2xl border text-center transition-all cursor-pointer flex flex-col items-center justify-center ${isSelected
+                                          ? 'border-orange-500 bg-orange-50 text-orange-600 shadow-sm ring-1 ring-orange-400'
+                                          : 'bg-white border-slate-200 text-slate-700 hover:border-slate-300'
+                                          }`}
+                                      >
+                                        <span className="text-[11px] font-extrabold">{formatSlotLabel(slot)}</span>
+                                        <span className="text-[8px] font-black text-emerald-600 mt-0.5 uppercase tracking-wide">{promoText}</span>
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </>
+                      )}
+                    </div>
+
+                  </div>
+                );
+              })()}
+
+              {drawerStep === 2 && (
+                <div className="space-y-6">
+                  {!isRegisterMode ? (
+                    // PHONE LOGIN FORM
+                    <div>
+                      <h4 className="text-lg font-black text-slate-800 mb-1 tracking-tight">Login</h4>
+                      <p className="text-xs text-slate-400 mb-6 font-semibold">Verify to secure your booking slot instantly.</p>
+
+                      {loginError && (
+                        <div className="bg-rose-500/10 border border-rose-500/20 text-rose-600 text-xs font-semibold p-3.5 rounded-2xl text-center mb-5">
+                          {loginError}
+                        </div>
+                      )}
+
+                      <form onSubmit={handlePhoneLoginSubmit} className="space-y-5">
+                        {loginStep === 1 ? (
+                          <div>
+                            <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2 block">Phone Number</label>
+                            <div className="relative">
+                              <span className="absolute left-4 top-3.5 text-slate-400 font-bold text-xs">+91</span>
+                              <input
+                                type="tel"
+                                required
+                                value={loginPhone}
+                                onChange={(e) => setLoginPhone(e.target.value)}
+                                className="w-full bg-white border border-slate-200 rounded-2xl pl-12 pr-4 py-3.5 text-xs focus:outline-none focus:border-rose-500 text-slate-800 font-semibold"
+                                placeholder="99000-00000"
+                              />
+                            </div>
+                            <button
+                              type="submit"
+                              disabled={isPhoneLoggingIn}
+                              className="w-full bg-rose-600 hover:bg-rose-700 text-white rounded-2xl py-3.5 text-xs font-bold transition-all shadow-md shadow-rose-200 cursor-pointer mt-6 flex justify-center items-center gap-1.5"
+                            >
+                              Send OTP
+                            </button>
+                          </div>
+                        ) : (
+                          <div>
+                            <div className="p-3.5 bg-indigo-50 border border-indigo-100 rounded-2xl text-xs text-indigo-700 font-bold mb-5 flex flex-col gap-1">
+                              <span className="flex items-center gap-1.5">
+                                <Sparkles size={14} className="text-indigo-600" />
+                                <span>Demo Assistant</span>
+                              </span>
+                              <span className="font-medium text-slate-500">OTP has been sent to +91 {loginPhone}. Use static code <strong>123456</strong>.</span>
+                            </div>
+
+                            <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2 block">Enter OTP</label>
+                            <input
+                              type="text"
+                              required
+                              maxLength={6}
+                              value={loginOtp}
+                              onChange={(e) => setLoginOtp(e.target.value)}
+                              className="w-full bg-white border border-slate-200 rounded-2xl px-4 py-3.5 text-center text-sm tracking-widest font-extrabold focus:outline-none focus:border-rose-500 text-slate-850"
+                              placeholder="••••••"
+                            />
+                            <button
+                              type="submit"
+                              disabled={isPhoneLoggingIn}
+                              className="w-full bg-rose-600 hover:bg-rose-700 text-white rounded-2xl py-3.5 text-xs font-bold transition-all shadow-md shadow-rose-200 cursor-pointer mt-6 flex justify-center items-center gap-1.5"
+                            >
+                              {isPhoneLoggingIn ? <Loader2 size={14} className="animate-spin" /> : null}
+                              Verify & Log In
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => { setLoginStep(1); setLoginError(null); }}
+                              className="w-full text-center text-xs text-rose-500 font-bold hover:underline mt-4 cursor-pointer"
+                            >
+                              Change phone number
+                            </button>
+                          </div>
+                        )}
+                      </form>
+
+                      <p className="mt-8 text-center text-xs text-slate-400 font-semibold">
+                        New to Book My Bota?{' '}
+                        <button
+                          type="button"
+                          onClick={() => { setIsRegisterMode(true); setLoginError(null); }}
+                          className="text-rose-600 font-extrabold hover:underline cursor-pointer"
+                        >
+                          Create an account
+                        </button>
+                      </p>
+                    </div>
+                  ) : (
+                    // REGISTRATION FORM
+                    <div>
+                      <h4 className="text-lg font-black text-slate-800 mb-1 tracking-tight">Create Account</h4>
+                      <p className="text-xs text-slate-400 mb-6 font-semibold">Register in seconds to complete your booking.</p>
+
+                      {loginError && (
+                        <div className="bg-rose-500/10 border border-rose-500/20 text-rose-600 text-xs font-semibold p-3.5 rounded-2xl text-center mb-5">
+                          {loginError}
+                        </div>
+                      )}
+
+                      <form onSubmit={handleRegisterSubmit} className="space-y-4">
+                        <div>
+                          <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5 block">Full Name</label>
+                          <input
+                            type="text"
+                            required
+                            value={regName}
+                            onChange={(e) => setRegName(e.target.value)}
+                            className="w-full bg-white border border-slate-200 rounded-2xl px-4 py-3 text-xs focus:outline-none focus:border-rose-500 text-slate-800 font-semibold"
+                            placeholder="John Doe"
+                          />
+                        </div>
+                        <div>
+                          <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5 block">Email Address</label>
+                          <input
+                            type="email"
+                            required
+                            value={regEmail}
+                            onChange={(e) => setRegEmail(e.target.value)}
+                            className="w-full bg-white border border-slate-200 rounded-2xl px-4 py-3 text-xs focus:outline-none focus:border-rose-500 text-slate-800 font-semibold"
+                            placeholder="john@example.com"
+                          />
+                        </div>
+                        <div>
+                          <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5 block">Phone Number</label>
+                          <div className="relative">
+                            <span className="absolute left-4 top-3 text-slate-400 font-bold text-xs">+91</span>
+                            <input
+                              type="tel"
+                              required
+                              value={regPhone}
+                              onChange={(e) => setRegPhone(e.target.value)}
+                              className="w-full bg-white border border-slate-200 rounded-2xl pl-12 pr-4 py-3 text-xs focus:outline-none focus:border-rose-500 text-slate-800 font-semibold"
+                              placeholder="99000-00000"
+                            />
+                          </div>
+                        </div>
+
+                        <button
+                          type="submit"
+                          disabled={isRegistering}
+                          className="w-full bg-rose-600 hover:bg-rose-700 text-white rounded-2xl py-3.5 text-xs font-bold transition-all shadow-md shadow-rose-200 cursor-pointer mt-6 flex justify-center items-center gap-1.5"
+                        >
+                          {isRegistering ? <Loader2 size={14} className="animate-spin" /> : null}
+                          Register & Log In
+                        </button>
+                      </form>
+
+                      <p className="mt-8 text-center text-xs text-slate-400 font-semibold">
+                        Already have an account?{' '}
+                        <button
+                          type="button"
+                          onClick={() => { setIsRegisterMode(false); setLoginError(null); }}
+                          className="text-rose-600 font-extrabold hover:underline cursor-pointer"
+                        >
+                          Log in
+                        </button>
+                      </p>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {drawerStep === 3 && (
+                <div className="space-y-6">
+                  <div>
+                    <h4 className="text-lg font-black text-slate-850 mb-1 tracking-tight">Confirm Booking</h4>
+                    <p className="text-xs text-slate-400 mb-6 font-semibold">Check details and complete your reservation.</p>
+                  </div>
+
+                  {/* Booking Summary Box */}
+                  <div className="bg-white border border-slate-205 rounded-2xl p-4 shadow-sm space-y-3">
+                    <h5 className="text-xs font-bold text-slate-400 uppercase tracking-wider border-b border-slate-100 pb-2 flex items-center gap-1.5">
+                      <Sparkles size={14} className="text-rose-500" /> Summary
+                    </h5>
+                    <div className="grid grid-cols-2 gap-3.5">
+                      <div className="space-y-0.5">
+                        <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Date</span>
+                        <p className="text-xs font-extrabold text-slate-800">
+                          {bookingDates[selectedDateIndex].toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short' })}
+                        </p>
+                      </div>
+                      <div className="space-y-0.5">
+                        <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Time</span>
+                        <p className="text-xs font-extrabold text-slate-800">{formatSlotLabel(selectedTime)}</p>
+                      </div>
+                      <div className="space-y-0.5">
+                        <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Party Size</span>
+                        <p className="text-xs font-extrabold text-slate-800">{guests} {Number(guests) === 1 ? 'Guest' : 'Guests'}</p>
+                      </div>
+                      <div className="space-y-0.5">
+                        <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Promotion</span>
+                        <p className="text-xs font-bold text-emerald-600 flex items-center gap-1">
+                          <span className="inline-block w-2 h-2 rounded-full bg-emerald-500" />
+                          {bookingDates[selectedDateIndex].getDay() === 5 || bookingDates[selectedDateIndex].getDay() === 6 || bookingDates[selectedDateIndex].getDay() === 0 ? '15% Off' : '20% Off'}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {availabilityStatus === 'loading' && (
+                    <div className="flex flex-col items-center justify-center gap-2.5 py-8 bg-white border border-slate-200 rounded-2xl shadow-sm">
+                      <Loader2 size={24} className="animate-spin text-rose-600" />
+                      <span className="text-slate-400 text-xs font-bold">Verifying seat availability...</span>
+                    </div>
+                  )}
+
+                  {availabilityStatus === 'unavailable' && (
+                    <div className="p-4 bg-rose-50 border border-rose-100 rounded-2xl text-center space-y-3">
+                      <p className="text-xs text-rose-600 font-bold">Sorry, no tables are available for this slot.</p>
+                      <button
+                        type="button"
+                        onClick={() => setDrawerStep(1)}
+                        className="bg-rose-600 hover:bg-rose-700 text-white rounded-xl px-4 py-2 text-xs font-bold transition-all cursor-pointer"
+                      >
+                        Choose another time
+                      </button>
+                    </div>
+                  )}
+
+                  {availabilityStatus === 'available' && (
+                    <form onSubmit={handleBook} className="space-y-4">
+                      <div className="p-3.5 bg-emerald-50 border border-emerald-100 rounded-2xl text-emerald-750 text-xs flex items-center justify-center gap-2 font-bold shadow-sm">
+                        <CheckCircle size={15} className="text-emerald-650 shrink-0" />
+                        <span>Seats available! Complete details below.</span>
+                      </div>
+
+                      <div className="space-y-4 pt-1">
+                        <div>
+                          <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5 block">Full Name</label>
+                          <input
+                            type="text"
+                            required
+                            value={name}
+                            onChange={(e) => setName(e.target.value)}
+                            className="w-full bg-white border border-slate-200 rounded-2xl px-4 py-3 text-xs focus:outline-none focus:border-rose-500 text-slate-800 font-semibold"
+                            placeholder="John Doe"
+                          />
+                        </div>
+                        <div>
+                          <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5 block">Phone Number</label>
+                          <input
+                            type="tel"
+                            required
+                            value={phone}
+                            onChange={(e) => setPhone(e.target.value)}
+                            className="w-full bg-white border border-slate-200 rounded-2xl px-4 py-3 text-xs focus:outline-none focus:border-rose-500 text-slate-800 font-semibold"
+                            placeholder="+91 99000-00000"
+                          />
+                        </div>
+                        <button
+                          type="submit"
+                          className="bg-rose-600 hover:bg-rose-700 text-white rounded-2xl w-full py-3.5 text-xs font-bold shadow-md shadow-rose-600/10 hover-lift transition-all cursor-pointer mt-2"
+                        >
+                          Confirm Booking
+                        </button>
+                      </div>
+                    </form>
+                  )}
+                </div>
+              )}
+
+              {drawerStep === 4 && (
+                <div className="text-center py-12 px-2 space-y-6">
+                  <div className="w-16 h-16 bg-emerald-500/15 text-emerald-500 rounded-full flex items-center justify-center mx-auto mb-4 border border-emerald-500/20">
+                    <CheckCircle size={32} />
+                  </div>
+                  <div>
+                    <h3 className="text-xl font-black text-slate-800 mb-1.5">Booking Confirmed!</h3>
+                    <p className="text-slate-500 text-xs leading-relaxed max-w-xs mx-auto font-medium">
+                      Your table at <strong>{profile.name}</strong> is successfully reserved. See you soon!
+                    </p>
+                  </div>
+
+                  <div className="bg-white border border-slate-200 rounded-2xl p-4 text-left max-w-sm mx-auto space-y-2">
+                    <div className="flex justify-between text-xs">
+                      <span className="text-slate-400 font-semibold">Guests:</span>
+                      <span className="text-slate-800 font-bold">{guests} {Number(guests) === 1 ? 'Guest' : 'Guests'}</span>
+                    </div>
+                    <div className="flex justify-between text-xs">
+                      <span className="text-slate-400 font-semibold">Date:</span>
+                      <span className="text-slate-800 font-bold">
+                        {bookingDates[selectedDateIndex].toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short' })}
+                      </span>
+                    </div>
+                    <div className="flex justify-between text-xs">
+                      <span className="text-slate-400 font-semibold">Time:</span>
+                      <span className="text-slate-800 font-bold">{formatSlotLabel(selectedTime)}</span>
+                    </div>
+                  </div>
+
+                  <div className="pt-6 max-w-xs mx-auto">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsDrawerOpen(false);
+                        handleResetBooking();
+                      }}
+                      className="bg-slate-800 hover:bg-slate-900 text-white rounded-2xl px-6 py-3 text-xs font-bold transition-all shadow-md w-full cursor-pointer"
+                    >
+                      Done
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Drawer Footer - Sticky (Step 1 only) */}
+            {drawerStep === 1 && (
+              <div className="border-t border-slate-100 bg-white shrink-0 shadow-lg">
+                {/* Terms & Conditions — always visible just above the button */}
+                <div className="px-4 pt-4">
+                  <label className="flex items-start gap-3 cursor-pointer select-none">
+                    <div className="relative mt-0.5 shrink-0">
+                      <input
+                        type="checkbox"
+                        id="termsAcceptFooter"
+                        checked={acceptedTerms}
+                        onChange={(e) => setAcceptedTerms(e.target.checked)}
+                        className="sr-only"
+                      />
+                      {/* Custom checkbox visual — no onClick here; the <label> wrapper
+                        handles the toggle via the hidden <input onChange>.
+                        Having both causes a double-toggle (net effect = no change). */}
+                      <div
+                        className={`w-5 h-5 rounded-md border-2 flex items-center justify-center transition-all cursor-pointer ${acceptedTerms ? 'bg-rose-600 border-rose-600' : 'bg-white border-slate-300 hover:border-rose-400'
+                          }`}
+                      >
+                        {acceptedTerms && (
+                          <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                          </svg>
+                        )}
+                      </div>
+                    </div>
+                    <span className="text-[11px] text-slate-500 font-medium leading-relaxed">
+                      I agree to the{' '}
+                      <a href="#" className="text-rose-600 font-bold hover:underline" onClick={e => e.preventDefault()}>Terms &amp; Conditions</a>
+                      {' '}and{' '}
+                      <a href="#" className="text-rose-600 font-bold hover:underline" onClick={e => e.preventDefault()}>Cancellation Policy</a>
+                    </span>
+                  </label>
+                </div>
+
+                {/* Proceed button */}
+                <div className="px-4 pt-3 pb-4">
+                  {selectedTime && !acceptedTerms && (
+                    <p className="text-center text-[10px] text-amber-500 font-semibold mb-2">
+                      Please accept the Terms &amp; Conditions to proceed
+                    </p>
+                  )}
+                  {!selectedTime && (
+                    <p className="text-center text-[10px] text-slate-400 font-semibold mb-2">
+                      Select a time slot to continue
+                    </p>
+                  )}
+                  <button
+                    type="button"
+                    disabled={!selectedTime || !acceptedTerms}
+                    onClick={() => {
+                      if (!authUser) {
+                        setDrawerStep(2);
+                        setLoginStep(1);
+                        setLoginError(null);
+                      } else {
+                        setDrawerStep(3);
+                        setName(authUser.name || '');
+                        setPhone(authUser.phone || '');
+                      }
+                    }}
+                    className={`w-full py-3.5 rounded-2xl text-xs font-black transition-all flex items-center justify-center gap-1.5 shadow-md ${selectedTime && acceptedTerms
+                      ? 'bg-rose-500 hover:bg-rose-600 text-white shadow-rose-200 cursor-pointer'
+                      : 'bg-slate-100 text-slate-400 shadow-none cursor-not-allowed'
+                      }`}
+                  >
+                    Proceed
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
         </div>
-      )}
-    </div>
-  );
+      </div>
+      );
 }

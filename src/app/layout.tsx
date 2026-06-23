@@ -61,19 +61,31 @@ export default function RootLayout({
     return () => window.removeEventListener("selected_city_changed", handleCityUpdate);
   }, []);
 
-  useEffect(() => {
+  // Read auth state from localStorage — re-runs on pathname change AND on auth_changed event
+  const readAuthFromStorage = () => {
     const isBusiness = pathname?.startsWith('/business');
     const isAdmin = pathname?.startsWith('/admin');
     let userKey = 'user_customer';
     if (isAdmin) userKey = 'user_super_admin';
     else if (isBusiness) userKey = 'user_business_admin';
-
     const userStr = localStorage.getItem(userKey);
-    if (userStr) {
-      setUser(JSON.parse(userStr));
-    } else {
-      setUser(null);
-    }
+    setUser(userStr ? JSON.parse(userStr) : null);
+  };
+
+  useEffect(() => {
+    readAuthFromStorage();
+  }, [pathname]);
+
+  // Scroll to top on route change
+  useEffect(() => {
+    window.scrollTo(0, 0);
+  }, [pathname]);
+
+  // Listen for auth_changed event so header updates immediately after
+  // login/register inside the booking drawer (no page refresh needed)
+  useEffect(() => {
+    window.addEventListener('auth_changed', readAuthFromStorage);
+    return () => window.removeEventListener('auth_changed', readAuthFromStorage);
   }, [pathname]);
 
   const handleLogout = () => {

@@ -10,24 +10,24 @@ import { useGetBusinessTypesQuery, useGetBusinessesQuery, Business } from "@/ser
 const COLLECTIONS = [
   {
     id: 1,
-    title: "Date Night",
-    subtitle: "14 places",
-    image: "https://images.unsplash.com/photo-1414235077428-338989a2e8c0?w=400&q=80",
+    title: "Romantic Dining",
+    subtitle: "12 places",
+    image: "/romantic.jpg",
     color: "from-rose-900/80",
   },
   {
     id: 2,
-    title: "Best Brunch",
-    subtitle: "9 places",
-    image: "https://images.unsplash.com/photo-1533089860892-a7c6f0a88666?w=400&q=80",
+    title: "Premium Dining",
+    subtitle: "8 places",
+    image: "/premium.jpg",
     color: "from-amber-900/80",
   },
   {
     id: 3,
-    title: "Group Celebrations",
-    subtitle: "11 places",
-    image: "https://images.unsplash.com/photo-1530103862676-de8c9debad1d?w=400&q=80",
-    color: "from-purple-900/80",
+    title: "Outdoor Dining",
+    subtitle: "15 places",
+    image: "/outdoor.jpg",
+    color: "from-emerald-950/80",
   },
   {
     id: 4,
@@ -50,6 +50,16 @@ const COLLECTIONS = [
     image: "https://images.unsplash.com/photo-1544148103-0773bf10d330?w=400&q=80",
     color: "from-zinc-900/80",
   },
+];
+
+const MOODS = [
+  { title: "Premium dining", image: "/premium.jpg", query: "Premium" },
+  { title: "Asian flavours", image: "https://images.unsplash.com/photo-1579871494447-9811cf80d66c?w=300&q=80", query: "Asian" },
+  { title: "Family dining", image: "https://images.unsplash.com/photo-1589301760014-d929f3979dbc?w=300&q=80", query: "Family" },
+  { title: "Buffet", image: "https://images.unsplash.com/photo-1504674900247-0877df9cc836?w=300&q=80", query: "Buffet" },
+  { title: "Pure veg", image: "https://images.unsplash.com/photo-1512621776951-a57141f2eefd?w=300&q=80", query: "Veg" },
+  { title: "Outdoor dining", image: "/outdoor.jpg", query: "Outdoor" },
+  { title: "Romantic dining", image: "/romantic.jpg", query: "Romantic" },
 ];
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -736,7 +746,7 @@ export default function Home() {
               {/* Left Arrow */}
               <button 
                 onClick={() => scrollCollections('left')}
-                className="absolute left-2 sm:-left-5 top-1/2 -translate-y-1/2 z-20 bg-white/90 hover:bg-white text-slate-700 w-10 h-10 rounded-full flex items-center justify-center border border-slate-200 shadow-md hover:scale-105 active:scale-95 transition-all cursor-pointer backdrop-blur-sm"
+                className="absolute left-2 sm:-left-5 top-1/2 -translate-y-1/2 z-20 bg-white/90 hover:bg-white text-slate-700 w-10 h-10 rounded-full hidden md:flex items-center justify-center border border-slate-200 shadow-md hover:scale-105 active:scale-95 transition-all cursor-pointer backdrop-blur-sm"
                 aria-label="Scroll left"
               >
                 <ChevronLeft size={20} />
@@ -755,7 +765,7 @@ export default function Home() {
               {/* Right Arrow */}
               <button 
                 onClick={() => scrollCollections('right')}
-                className="absolute right-2 sm:-right-5 top-1/2 -translate-y-1/2 z-20 bg-white/90 hover:bg-white text-slate-750 w-10 h-10 rounded-full flex items-center justify-center border border-slate-200 shadow-md hover:scale-105 active:scale-95 transition-all cursor-pointer backdrop-blur-sm"
+                className="absolute right-2 sm:-right-5 top-1/2 -translate-y-1/2 z-20 bg-white/90 hover:bg-white text-slate-750 w-10 h-10 rounded-full hidden md:flex items-center justify-center border border-slate-200 shadow-md hover:scale-105 active:scale-95 transition-all cursor-pointer backdrop-blur-sm"
                 aria-label="Scroll right"
               >
                 <ChevronRight size={20} />
@@ -819,54 +829,40 @@ export default function Home() {
               <div className="flex-1 h-px bg-slate-200" />
             </div>
 
-            {/* Mobile Layout: Rectangular cards (h-32) with bottom-right cropped images */}
-            <div className="grid grid-cols-2 gap-4 md:hidden">
-              {[
-                { title: "Premium dining", image: "https://images.unsplash.com/photo-1544025162-d76694265947?w=150&q=80", query: "Premium" },
-                { title: "Asian flavours", image: "https://images.unsplash.com/photo-1579871494447-9811cf80d66c?w=150&q=80", query: "Asian" },
-                { title: "Family dining", image: "https://images.unsplash.com/photo-1589301760014-d929f3979dbc?w=150&q=80", query: "Family" },
-                { title: "Buffet", image: "https://images.unsplash.com/photo-1504674900247-0877df9cc836?w=150&q=80", query: "Buffet" },
-                { title: "Pure veg", image: "https://images.unsplash.com/photo-1512621776951-a57141f2eefd?w=150&q=80", query: "Veg" },
-                { title: "Outdoor dining", image: "https://images.unsplash.com/photo-1533777857889-4be7c70b33f7?w=150&q=80", query: "Outdoor" },
-                { title: "Romantic dining", image: "https://images.unsplash.com/photo-1510812431401-41d2bd2722f3?w=150&q=80", query: "Romantic" },
-              ].map((mood) => (
-                <button
-                  key={mood.title}
-                  onClick={() => handleMoodSelect(mood.query)}
-                  className="group relative bg-white rounded-2xl border border-slate-100/80 p-4 h-32 overflow-hidden flex flex-col justify-between hover:shadow-md hover:border-slate-200 transition-all cursor-pointer text-left animate-fadeIn"
-                >
-                  <span className="font-bold text-slate-800 text-[13px] leading-tight block max-w-[80%] group-hover:text-rose-600 transition-colors">
-                    {mood.title}
-                  </span>
-                  <div className="absolute bottom-0 right-0 w-20 h-20 overflow-hidden rounded-br-2xl">
-                    <img
-                      src={mood.image}
-                      alt={mood.title}
-                      className="w-full h-full object-cover translate-x-2 translate-y-2 group-hover:scale-105 group-hover:translate-x-1 group-hover:translate-y-1 transition-all duration-350"
-                    />
-                  </div>
-                </button>
-              ))}
+            {/* Mobile Layout: 2-row horizontal scroll of tall cards (title at top, image at bottom) */}
+            <div className="flex md:hidden overflow-x-auto pb-4 scrollbar-hide -mx-4 px-4 scroll-smooth">
+              <div className="grid grid-rows-2 grid-flow-col gap-4">
+                {MOODS.map((mood) => (
+                  <button
+                    key={mood.title}
+                    onClick={() => handleMoodSelect(mood.query)}
+                    className="group bg-white rounded-2xl border border-slate-100/90 p-3.5 h-38 w-28 flex flex-col justify-between hover:shadow-sm hover:border-slate-200 transition-all cursor-pointer text-left shrink-0 shadow-sm relative overflow-hidden focus:outline-none"
+                  >
+                    <span className="font-bold text-slate-800 text-[12.5px] leading-tight block max-w-full group-hover:text-rose-600 transition-colors">
+                      {mood.title}
+                    </span>
+                    <div className="absolute bottom-0 left-0 right-0 h-22 overflow-hidden rounded-b-2xl flex items-end">
+                      <img
+                        src={mood.image}
+                        alt={mood.title}
+                        className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                      />
+                    </div>
+                  </button>
+                ))}
+              </div>
             </div>
 
-            {/* Desktop Layout: Premium Circular Category Bubbles with Zoom-on-Hover and Ring Border */}
-            <div className="hidden md:flex flex-wrap justify-center gap-8 max-w-5xl mx-auto py-2">
-              {[
-                { title: "Premium Dining", image: "https://images.unsplash.com/photo-1544025162-d76694265947?w=300&q=80", query: "Premium" },
-                { title: "Asian Flavours", image: "https://images.unsplash.com/photo-1579871494447-9811cf80d66c?w=300&q=80", query: "Asian" },
-                { title: "Family Dining", image: "https://images.unsplash.com/photo-1589301760014-d929f3979dbc?w=300&q=80", query: "Family" },
-                { title: "Buffet Special", image: "https://images.unsplash.com/photo-1504674900247-0877df9cc836?w=300&q=80", query: "Buffet" },
-                { title: "Pure Vegetarian", image: "https://images.unsplash.com/photo-1512621776951-a57141f2eefd?w=300&q=80", query: "Veg" },
-                { title: "Outdoor Dining", image: "https://images.unsplash.com/photo-1533777857889-4be7c70b33f7?w=300&q=80", query: "Outdoor" },
-                { title: "Romantic Dining", image: "https://images.unsplash.com/photo-1510812431401-41d2bd2722f3?w=300&q=80", query: "Romantic" },
-              ].map((mood) => (
+            {/* Desktop Layout: Premium Circular Category Bubbles in exactly 1 line across full width (no left/right extra margins) */}
+            <div className="hidden md:flex justify-between items-center w-full py-2">
+              {MOODS.map((mood) => (
                 <button
                   key={mood.title}
                   onClick={() => handleMoodSelect(mood.query)}
-                  className="group flex flex-col items-center text-center cursor-pointer w-28 focus:outline-none"
+                  className="group flex flex-col items-center text-center cursor-pointer w-28 lg:w-32 focus:outline-none shrink-0"
                 >
                   {/* Circular Wrapper */}
-                  <div className="relative w-24 h-24 rounded-full overflow-hidden border-2 border-slate-100 group-hover:border-rose-600 group-hover:scale-105 transition-all duration-300 shadow-sm bg-slate-50 flex items-center justify-center">
+                  <div className="relative w-24 h-24 lg:w-28 lg:h-28 rounded-full overflow-hidden border-2 border-slate-100 group-hover:border-rose-600 group-hover:scale-105 transition-all duration-300 shadow-sm bg-slate-50 flex items-center justify-center">
                     <img
                       src={mood.image}
                       alt={mood.title}
@@ -876,7 +872,7 @@ export default function Home() {
                     <div className="absolute inset-0 ring-4 ring-rose-500/15 rounded-full opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
                   </div>
                   {/* Category Title */}
-                  <span className="text-[13px] font-bold text-slate-700 mt-3 group-hover:text-rose-600 transition-colors tracking-wide leading-tight">
+                  <span className="text-[12px] lg:text-[13px] font-bold text-slate-700 mt-3 group-hover:text-rose-600 transition-colors tracking-wide leading-tight">
                     {mood.title}
                   </span>
                 </button>
