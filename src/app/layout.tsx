@@ -6,6 +6,7 @@ import Link from "next/link";
 import { UtensilsCrossed, Calendar, LogOut, Search, MapPin, ChevronLeft, X } from "lucide-react";
 import { usePathname } from "next/navigation";
 import { StoreProvider } from "@/providers/StoreProvider";
+import { Toaster } from "sonner";
 
 const inter = Inter({ subsets: ["latin"] });
 
@@ -423,6 +424,7 @@ export default function RootLayout({
             {children}
             {!isAdminOrBusiness && <Footer />}
           </main>
+          <Toaster position="top-center" richColors />
         </StoreProvider>
       </body>
     </html>

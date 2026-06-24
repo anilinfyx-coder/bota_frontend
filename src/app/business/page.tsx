@@ -1,6 +1,7 @@
 "use client";
 import { useState, useEffect } from 'react';
 import { Settings, CalendarCheck, Users, TrendingUp, Save, Clock, HelpCircle, AlertCircle } from 'lucide-react';
+import { toast } from 'sonner';
 import { useGetBusinessSettingsQuery, useGetBusinessBookingsQuery, useUpdateBusinessSettingsMutation } from '@/services/api';
 import { useAppDispatch } from '@/lib/hooks';
 import { loadFromStorage } from '@/features/auth/authSlice';
@@ -65,7 +66,7 @@ function BusinessDashboard() {
           } as any
         } 
       }).unwrap();
-      alert('Settings saved to database successfully!');
+      toast.success('Settings saved to database successfully!');
     } catch (err) {
       console.error(err);
     }

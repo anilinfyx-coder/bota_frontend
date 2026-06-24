@@ -15,7 +15,8 @@ import {
   Store,
   Menu,
   X,
-  Star
+  Star,
+  Megaphone
 } from "lucide-react";
 
 export default function BusinessLayout({ children }: { children: React.ReactNode }) {
@@ -48,8 +49,9 @@ export default function BusinessLayout({ children }: { children: React.ReactNode
     { name: 'Bookings Manager', href: '/business/bookings', icon: CalendarCheck },
     { name: 'Table Management', href: '/business/tables', icon: LayoutGrid },
     { name: 'Analytics', href: '/business/analytics', icon: Clock },
+    { name: 'Profile Editor', href: '/business/profile', icon: Settings },
     { name: 'Reviews', href: '/business/reviews', icon: Star },
-    { name: 'Business Profile', href: '/business/profile', icon: Store },
+    { name: 'Promotions', href: '/business/promotions', icon: Megaphone },
   ];
 
   const handleLogout = () => {

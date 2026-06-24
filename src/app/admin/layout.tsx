@@ -11,7 +11,8 @@ import {
   LogOut,
   Settings,
   Menu,
-  X
+  X,
+  Megaphone
 } from "lucide-react";
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
@@ -24,6 +25,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     { name: 'Global Dashboard', href: '/admin', icon: LayoutDashboard },
     { name: 'Businesses Onboarding', href: '/admin/businesses', icon: Store },
     { name: 'Subscription & Billing', href: '/admin/billing', icon: CreditCard },
+    { name: 'Marketing Plans', href: '/admin/marketing', icon: Megaphone },
     { name: 'Content Management', href: '/admin/content', icon: FileText },
     { name: 'User Management', href: '/admin/users', icon: Users },
   ];

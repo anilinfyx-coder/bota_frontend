@@ -98,7 +98,7 @@ function RestaurantCard({ restaurant }: { restaurant: Business }) {
     return `${dists[id % dists.length]} km`;
   };
 
-  const isPromoted = idHash % 2 === 0;
+  const isPromoted = !!restaurant.is_promoted;
   const hasDiscount = idHash % 3 === 0 || idHash % 5 === 0;
 
   return (

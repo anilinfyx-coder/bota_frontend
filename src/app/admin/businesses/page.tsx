@@ -1,6 +1,7 @@
 "use client";
 import { useState } from 'react';
 import { Building2, CheckCircle, Plus } from 'lucide-react';
+import { toast } from 'sonner';
 import { useGetBusinessesQuery, useGetBusinessTypesQuery, useRegisterBusinessMutation } from '@/services/api';
 
 export default function BusinessesPage() {
@@ -31,6 +32,7 @@ export default function BusinessesPage() {
         admin_password: adminPassword,
       }).unwrap();
       setOnboardStatus('success');
+      toast.success('Business registered successfully!');
       setTimeout(() => {
         setShowModal(false);
         setOnboardStatus(null);
@@ -39,6 +41,7 @@ export default function BusinessesPage() {
       }, 2000);
     } catch {
       setOnboardStatus('error');
+      toast.error('Failed to register business');
     }
   };
 

@@ -33,6 +33,7 @@ export interface Business {
   dining_offers?: Array<{ type: string; title: string; validity: string }>;
   amenities?: string[];
   average_cost?: number;
+  is_promoted?: boolean;
   collection_slugs?: string[];
 }
 
@@ -161,7 +162,7 @@ export const api = createApi({
       return headers;
     },
   }),
-  tagTypes: ['Businesses', 'Tables', 'Bookings', 'BusinessSettings', 'AdminStats', 'Analytics', 'Reviews'],
+  tagTypes: ['Businesses', 'Tables', 'Bookings', 'BusinessSettings', 'AdminStats', 'Analytics', 'Reviews', 'MarketingPlans', 'MarketingCampaigns'],
   endpoints: (builder) => ({
 
     // ── Auth ──────────────────────────────────────────────────────────────────
@@ -422,6 +423,53 @@ export const api = createApi({
       invalidatesTags: ['Businesses'],
     }),
 
+    getMarketingPlans: builder.query<any[], void>({
+      query: () => '/admin/marketing-plans',
+      transformResponse: (res: { data: any[] }) => res.data,
+      providesTags: ['MarketingPlans'],
+    }),
+
+    createMarketingPlan: builder.mutation<any, Partial<any>>({
+      query: (body) => ({
+        url: '/admin/marketing-plans',
+        method: 'POST',
+        body,
+      }),
+      invalidatesTags: ['MarketingPlans'],
+    }),
+
+    updateMarketingPlan: builder.mutation<any, Partial<any> & { id: number }>({
+      query: ({ id, ...body }) => ({
+        url: `/admin/marketing-plans/${id}`,
+        method: 'PUT',
+        body,
+      }),
+      invalidatesTags: ['MarketingPlans'],
+    }),
+
+    deleteMarketingPlan: builder.mutation<any, number>({
+      query: (id) => ({
+        url: `/admin/marketing-plans/${id}`,
+        method: 'DELETE',
+      }),
+      invalidatesTags: ['MarketingPlans'],
+    }),
+
+    getMarketingCampaigns: builder.query<any[], void>({
+      query: () => '/admin/marketing-campaigns',
+      transformResponse: (res: { data: any[] }) => res.data,
+      providesTags: ['MarketingCampaigns'],
+    }),
+
+    assignMarketingCampaign: builder.mutation<any, { businessId: string; plan_id: number; end_date: string }>({
+      query: ({ businessId, ...body }) => ({
+        url: `/admin/businesses/${businessId}/marketing-campaigns`,
+        method: 'POST',
+        body,
+      }),
+      invalidatesTags: ['MarketingCampaigns', 'Businesses'],
+    }),
+
     // ── Analytics ─────────────────────────────────────────────────────────────
 
     getAnalytics: builder.query<Analytics, string>({
@@ -430,8 +478,14 @@ export const api = createApi({
       providesTags: (_result, _error, bizId) => [{ type: 'Analytics', id: bizId }],
     }),
 
+    getBusinessCampaigns: builder.query<any[], string>({
+      query: (bizId) => `/businesses/${bizId}/campaigns`,
+      transformResponse: (res: { data: any[] }) => res.data,
+      providesTags: (_result, _error, bizId) => [{ type: 'MarketingCampaigns', id: bizId }],
+    }),
+
     // ── Upload ────────────────────────────────────────────────────────────────
-    
+
     uploadImage: builder.mutation<{ url: string }, FormData>({
       query: (formData) => ({
         url: '/upload',
@@ -472,4 +526,11 @@ export const {
   useGetReviewsQuery,
   useCreateReviewMutation,
   useCreateReviewReplyMutation,
+  useGetMarketingPlansQuery,
+  useCreateMarketingPlanMutation,
+  useUpdateMarketingPlanMutation,
+  useDeleteMarketingPlanMutation,
+  useGetMarketingCampaignsQuery,
+  useAssignMarketingCampaignMutation,
+  useGetBusinessCampaignsQuery,
 } = api;

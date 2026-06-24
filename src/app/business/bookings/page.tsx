@@ -1,6 +1,7 @@
 "use client";
 import { useState, useEffect } from 'react';
 import { Plus, ArrowUpDown, ChevronUp, ChevronDown, Search } from 'lucide-react';
+import { toast } from 'sonner';
 import { useGetBusinessBookingsQuery, useCancelBookingMutation, useCreateBookingMutation } from '@/services/api';
 import { useAppDispatch, useAppSelector } from '@/lib/hooks';
 import { loadFromStorage } from '@/features/auth/authSlice';
@@ -44,7 +45,7 @@ export default function BookingsManager() {
       }).unwrap();
       setShowModal(false);
     } catch {
-      alert('Failed to add walk-in. Check table availability.');
+      toast.error('Failed to add walk-in. Check table availability.');
     }
   };
 

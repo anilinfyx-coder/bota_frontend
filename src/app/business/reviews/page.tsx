@@ -5,6 +5,7 @@ import { useGetReviewsQuery, useCreateReviewReplyMutation, useGetBusinessPublicQ
 import { useAppSelector, useAppDispatch } from '@/lib/hooks';
 import { loadFromStorage } from '@/features/auth/authSlice';
 import { Star, StarHalf, MessageCircle, AlertCircle, Loader2 } from 'lucide-react';
+import { toast } from 'sonner';
 
 export default function BusinessReviewsPage() {
   const dispatch = useAppDispatch();
@@ -38,10 +39,10 @@ export default function BusinessReviewsPage() {
       
       setReplyingTo(null);
       setReplyText("");
-      alert("Reply posted successfully.");
+      toast.success("Reply posted successfully.");
     } catch (err) {
       console.error("Failed to post reply:", err);
-      alert("Failed to post reply.");
+      toast.error("Failed to post reply.");
     }
   };
 

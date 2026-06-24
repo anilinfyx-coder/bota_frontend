@@ -1,6 +1,7 @@
 "use client";
 import { useState, useEffect } from 'react';
 import { Trash2 } from 'lucide-react';
+import { toast } from 'sonner';
 import { useGetTablesQuery, useAddTableMutation, useUpdateTableMutation, useDeleteTableMutation } from '@/services/api';
 import { useAppDispatch, useAppSelector } from '@/lib/hooks';
 import { loadFromStorage } from '@/features/auth/authSlice';
@@ -28,7 +29,7 @@ export default function TableManager() {
       setTableNumber('');
       setCapacity('4');
     } catch {
-      alert('Failed to add table');
+      toast.error('Failed to add table');
     }
   };
 

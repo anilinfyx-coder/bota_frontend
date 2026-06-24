@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useRegisterCustomerMutation } from '@/services/api';
 import { useAppDispatch } from '@/lib/hooks';
 import { setCredentials } from '@/features/auth/authSlice';
+import { toast } from 'sonner';
 
 export default function Register() {
   const router = useRouter();
@@ -20,9 +21,10 @@ export default function Register() {
     try {
       const data = await registerCustomer({ name, email, phone, password }).unwrap();
       dispatch(setCredentials({ user: data.user, token: data.token }));
+      toast.success('Registration successful! Welcome.');
       router.push('/customer/dashboard');
-    } catch {
-      // error shown via RTK error state
+    } catch (err: any) {
+      toast.error(err?.data?.error || 'Registration failed.');
     }
   };
 

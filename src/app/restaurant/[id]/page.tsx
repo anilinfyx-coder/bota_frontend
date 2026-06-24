@@ -6,6 +6,7 @@ import {
   BookOpen, AlertCircle, Sparkles, Copy, ChevronRight, Loader2,
   ChevronLeft, X, Sun, Moon
 } from 'lucide-react';
+import { toast } from 'sonner';
 import Link from 'next/link';
 import {
   useGetBusinessPublicQuery,
@@ -512,7 +513,7 @@ export default function RestaurantPage({ params }: { params: Promise<{ id: strin
 
   const checkAvailability = async () => {
     if (!selectedTime) {
-      alert("Please select a time slot first.");
+      toast.error("Please select a time slot first.");
       return;
     }
     if (!guests) return;
@@ -554,7 +555,7 @@ export default function RestaurantPage({ params }: { params: Promise<{ id: strin
       setBookingSuccess(true);
       setDrawerStep(4);
     } catch {
-      alert('Booking failed. Please try again.');
+      toast.error('Booking failed. Please try again.');
     }
   };
 
@@ -580,10 +581,10 @@ export default function RestaurantPage({ params }: { params: Promise<{ id: strin
       setNewReviewUser("");
       setNewReviewText("");
       setNewReviewRating(5);
-      alert("Review submitted successfully!");
+      toast.success("Review submitted successfully!");
     } catch (err) {
       console.error("Failed to submit review", err);
-      alert("Error submitting review.");
+      toast.error("Error submitting review.");
     }
   };
 
@@ -606,10 +607,10 @@ export default function RestaurantPage({ params }: { params: Promise<{ id: strin
       setReplyText("");
       setReplyUser("");
       setReplyingToReviewId(null);
-      alert("Reply added successfully!");
+      toast.success("Reply added successfully!");
     } catch (err) {
       console.error("Failed to submit reply", err);
-      alert("Error submitting reply.");
+      toast.error("Error submitting reply.");
     }
   };
 
@@ -875,7 +876,7 @@ export default function RestaurantPage({ params }: { params: Promise<{ id: strin
                 navigator.share({ title: profile.name, url: window.location.href });
               } else {
                 navigator.clipboard.writeText(window.location.href);
-                alert("Link copied to clipboard!");
+                toast.success("Link copied to clipboard!");
               }
             }}
             className="flex items-center gap-1.5 px-4 py-2 border border-slate-200 hover:border-slate-300 hover:bg-slate-50 rounded-xl text-xs font-bold text-slate-600 transition-all cursor-pointer"

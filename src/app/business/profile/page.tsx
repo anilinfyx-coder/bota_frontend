@@ -1,6 +1,7 @@
 "use client";
 import { useState, useEffect } from 'react';
 import { Save, ImagePlus, X, Upload, Info, Tag, Wifi, Image as ImageIcon } from 'lucide-react';
+import { toast } from 'sonner';
 import { useGetBusinessSettingsQuery, useUpdateBusinessSettingsMutation, useUploadImageMutation } from '@/services/api';
 import { useAppDispatch, useAppSelector } from '@/lib/hooks';
 import { loadFromStorage } from '@/features/auth/authSlice';
@@ -79,7 +80,7 @@ export default function ProfilePage() {
           }
         }
       }).unwrap();
-      alert('Profile saved successfully!');
+      toast.success('Profile saved successfully!');
     } catch (err) {
       console.error(err);
     }
@@ -106,7 +107,7 @@ export default function ProfilePage() {
         }
       } catch (err) {
         console.error('Upload failed:', err);
-        alert('Failed to upload ' + file.name);
+        toast.error('Failed to upload ' + file.name);
       }
     }
   };
