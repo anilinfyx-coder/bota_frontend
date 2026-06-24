@@ -2,65 +2,10 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { Search, MapPin, Star, ArrowRight, ChevronLeft, ChevronRight, Navigation, Loader2, X, Percent } from "lucide-react";
 import Link from "next/link";
-import { useGetBusinessTypesQuery, useGetBusinessesQuery, Business } from "@/services/api";
+import { useGetBusinessTypesQuery, useGetBusinessesQuery, useGetCollectionsQuery, useGetMoodsQuery, Business, Collection, Mood } from "@/services/api";
+import { useRouter } from "next/navigation";
 
-// ─── Static Data ──────────────────────────────────────────────────────────────
-// TODO: Replace STATIC_RESTAURANTS with useGetBusinessesQuery() for dynamic data
 
-const COLLECTIONS = [
-  {
-    id: 1,
-    title: "Romantic Dining",
-    subtitle: "12 places",
-    image: "/romantic.jpg",
-    color: "from-rose-900/80",
-  },
-  {
-    id: 2,
-    title: "Premium Dining",
-    subtitle: "8 places",
-    image: "/premium.jpg",
-    color: "from-amber-900/80",
-  },
-  {
-    id: 3,
-    title: "Outdoor Dining",
-    subtitle: "15 places",
-    image: "/outdoor.jpg",
-    color: "from-emerald-950/80",
-  },
-  {
-    id: 4,
-    title: "Quick Lunch",
-    subtitle: "18 places",
-    image: "https://images.unsplash.com/photo-1504674900247-0877df9cc836?w=400&q=80",
-    color: "from-green-900/80",
-  },
-  {
-    id: 5,
-    title: "Hidden Gems",
-    subtitle: "7 places",
-    image: "https://images.unsplash.com/photo-1559339352-11d035aa65de?w=400&q=80",
-    color: "from-blue-900/80",
-  },
-  {
-    id: 6,
-    title: "Late Night Dining",
-    subtitle: "6 places",
-    image: "https://images.unsplash.com/photo-1544148103-0773bf10d330?w=400&q=80",
-    color: "from-zinc-900/80",
-  },
-];
-
-const MOODS = [
-  { title: "Premium dining", image: "/premium.jpg", query: "Premium" },
-  { title: "Asian flavours", image: "https://images.unsplash.com/photo-1579871494447-9811cf80d66c?w=300&q=80", query: "Asian" },
-  { title: "Family dining", image: "https://images.unsplash.com/photo-1589301760014-d929f3979dbc?w=300&q=80", query: "Family" },
-  { title: "Buffet", image: "https://images.unsplash.com/photo-1504674900247-0877df9cc836?w=300&q=80", query: "Buffet" },
-  { title: "Pure veg", image: "https://images.unsplash.com/photo-1512621776951-a57141f2eefd?w=300&q=80", query: "Veg" },
-  { title: "Outdoor dining", image: "/outdoor.jpg", query: "Outdoor" },
-  { title: "Romantic dining", image: "/romantic.jpg", query: "Romantic" },
-];
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -214,20 +159,31 @@ function RestaurantCard({ restaurant }: { restaurant: Business }) {
   );
 }
 
-function CollectionCard({ collection }: { collection: typeof COLLECTIONS[0] }) {
+function CollectionCard({ collection }: { collection: Collection }) {
+  const subtitle = collection.places_count !== undefined 
+    ? `${collection.places_count} place${collection.places_count !== 1 ? 's' : ''}`
+    : collection.subtitle || "0 places";
+
   return (
-    <div className="relative shrink-0 w-48 h-56 rounded-2xl overflow-hidden cursor-pointer group shadow-md hover:shadow-xl transition-all duration-300 hover:-translate-y-1">
+    <Link
+      href={`/search?collection=${collection.slug}`}
+      className="relative shrink-0 w-48 h-56 rounded-2xl overflow-hidden cursor-pointer group shadow-md hover:shadow-xl transition-all duration-300 hover:-translate-y-1 block"
+    >
       <img
-        src={collection.image}
+        src={collection.image_url || "https://images.unsplash.com/photo-1544025162-d76694265947?w=400&q=80"}
         alt={collection.title}
         className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+        onError={(e) => {
+          (e.target as HTMLImageElement).src =
+            "https://images.unsplash.com/photo-1541518763669-27fef04b14ea?w=500&q=80";
+        }}
       />
-      <div className={`absolute inset-0 bg-gradient-to-t ${collection.color} to-transparent`} />
+      <div className={`absolute inset-0 bg-gradient-to-t ${collection.color_gradient || 'from-rose-900/80'} to-transparent`} />
       <div className="absolute bottom-0 left-0 right-0 p-4">
         <h3 className="text-white font-bold text-base leading-tight">{collection.title}</h3>
-        <p className="text-white/70 text-xs mt-1">{collection.subtitle}</p>
+        <p className="text-white/70 text-xs mt-1">{subtitle}</p>
       </div>
-    </div>
+    </Link>
   );
 }
 
@@ -358,6 +314,7 @@ function LocationDropdown({ onSelect, onDetect, detecting, onClose }: LocationDr
 // ─── Main Page ─────────────────────────────────────────────────────────────────
 
 export default function Home() {
+  const router = useRouter();
   const [searchQuery, setSearchQuery] = useState("");
   const [searchInput, setSearchInput] = useState("");
   const [activeFilter, setActiveFilter] = useState("All");
@@ -381,14 +338,12 @@ export default function Home() {
   };
 
   const handleMoodSelect = (query: string) => {
-    setSearchQuery(query);
-    setSearchInput(query);
-    setTimeout(() => {
-      const element = document.getElementById("restaurant-listings");
-      if (element) {
-        element.scrollIntoView({ behavior: "smooth" });
-      }
-    }, 100);
+    const params = new URLSearchParams();
+    params.set("mood", query);
+    if (locationCity) {
+      params.set("city", locationCity);
+    }
+    router.push(`/search?${params.toString()}`);
   };
 
   // Read initial search/filter/city from URL query params
@@ -417,6 +372,8 @@ export default function Home() {
 
   const { data: businessTypes = [] } = useGetBusinessTypesQuery();
   const { data: businesses = [], isLoading: businessesLoading } = useGetBusinessesQuery();
+  const { data: collections = [] } = useGetCollectionsQuery();
+  const { data: moods = [] } = useGetMoodsQuery();
 
   const getEmojiForBusinessType = (name: string) => {
     const lower = name.toLowerCase();
@@ -738,9 +695,12 @@ export default function Home() {
                   Explore curated lists of top restaurants, cafes and bars
                 </p>
               </div>
-              <button className="flex items-center gap-1 text-sm font-semibold text-rose-600 hover:text-rose-700 transition-colors">
+              <Link
+                href={locationCity ? `/collections?city=${encodeURIComponent(locationCity)}` : '/collections'}
+                className="flex items-center gap-1 text-sm font-semibold text-rose-600 hover:text-rose-700 transition-colors cursor-pointer"
+              >
                 All collections <ChevronRight size={16} />
-              </button>
+              </Link>
             </div>
             <div className="relative mt-5">
               {/* Left Arrow */}
@@ -757,7 +717,7 @@ export default function Home() {
                 ref={collectionsRef}
                 className="flex gap-4 overflow-x-auto pb-3 scrollbar-hide scroll-smooth"
               >
-                {COLLECTIONS.map((col) => (
+                {collections.map((col) => (
                   <CollectionCard key={col.id} collection={col} />
                 ))}
               </div>
@@ -832,10 +792,10 @@ export default function Home() {
             {/* Mobile Layout: 2-row horizontal scroll of tall cards (title at top, image at bottom) */}
             <div className="flex md:hidden overflow-x-auto pb-4 scrollbar-hide -mx-4 px-4 scroll-smooth">
               <div className="grid grid-rows-2 grid-flow-col gap-4">
-                {MOODS.map((mood) => (
+                {moods.map((mood) => (
                   <button
-                    key={mood.title}
-                    onClick={() => handleMoodSelect(mood.query)}
+                    key={mood.id}
+                    onClick={() => handleMoodSelect(mood.query_tag)}
                     className="group bg-white rounded-2xl border border-slate-100/90 p-3.5 h-38 w-28 flex flex-col justify-between hover:shadow-sm hover:border-slate-200 transition-all cursor-pointer text-left shrink-0 shadow-sm relative overflow-hidden focus:outline-none"
                   >
                     <span className="font-bold text-slate-800 text-[12.5px] leading-tight block max-w-full group-hover:text-rose-600 transition-colors">
@@ -843,9 +803,13 @@ export default function Home() {
                     </span>
                     <div className="absolute bottom-0 left-0 right-0 h-22 overflow-hidden rounded-b-2xl flex items-end">
                       <img
-                        src={mood.image}
+                        src={mood.image_url}
                         alt={mood.title}
                         className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                        onError={(e) => {
+                          (e.target as HTMLImageElement).src =
+                            "https://images.unsplash.com/photo-1541518763669-27fef04b14ea?w=500&q=80";
+                        }}
                       />
                     </div>
                   </button>
@@ -855,18 +819,22 @@ export default function Home() {
 
             {/* Desktop Layout: Premium Circular Category Bubbles in exactly 1 line across full width (no left/right extra margins) */}
             <div className="hidden md:flex justify-between items-center w-full py-2">
-              {MOODS.map((mood) => (
+              {moods.map((mood) => (
                 <button
-                  key={mood.title}
-                  onClick={() => handleMoodSelect(mood.query)}
+                  key={mood.id}
+                  onClick={() => handleMoodSelect(mood.query_tag)}
                   className="group flex flex-col items-center text-center cursor-pointer w-28 lg:w-32 focus:outline-none shrink-0"
                 >
                   {/* Circular Wrapper */}
                   <div className="relative w-24 h-24 lg:w-28 lg:h-28 rounded-full overflow-hidden border-2 border-slate-100 group-hover:border-rose-600 group-hover:scale-105 transition-all duration-300 shadow-sm bg-slate-50 flex items-center justify-center">
                     <img
-                      src={mood.image}
+                      src={mood.image_url}
                       alt={mood.title}
                       className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"
+                      onError={(e) => {
+                        (e.target as HTMLImageElement).src =
+                          "https://images.unsplash.com/photo-1541518763669-27fef04b14ea?w=500&q=80";
+                      }}
                     />
                     {/* Ring highlight on hover */}
                     <div className="absolute inset-0 ring-4 ring-rose-500/15 rounded-full opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
@@ -1022,69 +990,6 @@ export default function Home() {
         </section>
         </div>
       </div>
-
-      {/* ── 6. Footer ─────────────────────────────────────────────────────── */}
-      <footer className="bg-slate-900 text-white">
-        <div className="max-w-7xl mx-auto px-4 py-12">
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-8 mb-10">
-            <div className="md:col-span-2">
-              <div className="flex items-center gap-2 mb-4">
-                <div className="w-8 h-8 bg-rose-600 rounded-lg flex items-center justify-center">
-                  <span className="text-white font-black text-sm">B</span>
-                </div>
-                <span className="text-xl font-black tracking-tight">Book My Bota</span>
-              </div>
-              <p className="text-slate-400 text-sm leading-relaxed max-w-xs">
-                The smartest way to discover and book tables at the best restaurants, cafes, and bars near you.
-              </p>
-            </div>
-            <div>
-              <h4 className="font-semibold text-sm mb-4 text-slate-300 uppercase tracking-wider">
-                Company
-              </h4>
-              <ul className="space-y-2 text-sm text-slate-400">
-                {["About Us", "Blog", "Careers", "Press"].map((item) => (
-                  <li key={item}>
-                    <a href="#" className="hover:text-white transition-colors">
-                      {item}
-                    </a>
-                  </li>
-                ))}
-              </ul>
-            </div>
-            <div>
-              <h4 className="font-semibold text-sm mb-4 text-slate-300 uppercase tracking-wider">
-                For Business
-              </h4>
-              <ul className="space-y-2 text-sm text-slate-400">
-                {["List Your Restaurant", "Business Dashboard", "Partner With Us", "Contact"].map(
-                  (item) => (
-                    <li key={item}>
-                      <a href="#" className="hover:text-white transition-colors">
-                        {item}
-                      </a>
-                    </li>
-                  )
-                )}
-              </ul>
-            </div>
-          </div>
-          <div className="border-t border-slate-800 pt-6 flex flex-col md:flex-row items-center justify-between gap-4">
-            <p className="text-slate-500 text-xs">© 2025 Book My Bota. All rights reserved.</p>
-            <div className="flex items-center gap-6">
-              {["Privacy Policy", "Terms of Service", "Cookie Policy"].map((item) => (
-                <a
-                  key={item}
-                  href="#"
-                  className="text-slate-500 hover:text-slate-300 text-xs transition-colors"
-                >
-                  {item}
-                </a>
-              ))}
-            </div>
-          </div>
-        </div>
-      </footer>
     </div>
   );
 }

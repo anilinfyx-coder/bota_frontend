@@ -33,6 +33,7 @@ export interface Business {
   dining_offers?: Array<{ type: string; title: string; validity: string }>;
   amenities?: string[];
   average_cost?: number;
+  collection_slugs?: string[];
 }
 
 export interface BusinessSettings {
@@ -56,6 +57,23 @@ export interface BusinessSettings {
 export interface BusinessType {
   id: number;
   name: string;
+}
+
+export interface Collection {
+  id: number;
+  title: string;
+  subtitle?: string;
+  image_url?: string;
+  color_gradient?: string;
+  slug: string;
+  places_count?: number;
+}
+
+export interface Mood {
+  id: number;
+  title: string;
+  image_url: string;
+  query_tag: string;
 }
 
 export interface ReviewReply {
@@ -189,10 +207,30 @@ export const api = createApi({
 
     // ── Businesses (Public) ───────────────────────────────────────────────────
 
-    getBusinesses: builder.query<Business[], void>({
-      query: () => '/businesses',
+    getBusinesses: builder.query<Business[], { collection?: string; mood?: string } | void>({
+      query: (params) => {
+        let url = '/businesses';
+        if (params) {
+          const searchParams = new URLSearchParams();
+          if (params.collection) searchParams.append('collection', params.collection);
+          if (params.mood) searchParams.append('mood', params.mood);
+          const queryString = searchParams.toString();
+          if (queryString) url += `?${queryString}`;
+        }
+        return url;
+      },
       transformResponse: (res: { data: Business[] }) => res.data || [],
       providesTags: ['Businesses'],
+    }),
+
+    getCollections: builder.query<Collection[], void>({
+      query: () => '/businesses/collections',
+      transformResponse: (res: { data: Collection[] }) => res.data || [],
+    }),
+
+    getMoods: builder.query<Mood[], void>({
+      query: () => '/businesses/moods',
+      transformResponse: (res: { data: Mood[] }) => res.data || [],
     }),
 
     getBusinessTypes: builder.query<BusinessType[], void>({
@@ -411,6 +449,8 @@ export const {
   useRegisterCustomerMutation,
   useRegisterBusinessMutation,
   useGetBusinessesQuery,
+  useGetCollectionsQuery,
+  useGetMoodsQuery,
   useGetBusinessTypesQuery,
   useGetBusinessPublicQuery,
   useGetBusinessSettingsQuery,

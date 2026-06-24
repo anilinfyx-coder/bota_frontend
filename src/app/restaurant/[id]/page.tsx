@@ -14,7 +14,9 @@ import {
   useRegisterCustomerMutation,
   useGetReviewsQuery,
   useCreateReviewMutation,
-  useCreateReviewReplyMutation
+  useCreateReviewReplyMutation,
+  useGetBusinessesQuery,
+  useGetCollectionsQuery
 } from '@/services/api';
 import { useAppSelector, useAppDispatch } from '@/lib/hooks';
 import { loadFromStorage, setCredentials } from '@/features/auth/authSlice';
@@ -285,6 +287,29 @@ export default function RestaurantPage({ params }: { params: Promise<{ id: strin
   const { data: reviews = [] } = useGetReviewsQuery(resolvedParams.id, { skip: !resolvedParams.id });
   const [createReview] = useCreateReviewMutation();
   const [createReviewReply] = useCreateReviewReplyMutation();
+
+  // Similar restaurants query logic
+  const { data: collections = [] } = useGetCollectionsQuery();
+  const firstCollectionSlug = profile?.collection_slugs?.[0];
+  const { data: similarBusinesses = [] } = useGetBusinessesQuery(
+    { collection: firstCollectionSlug },
+    { skip: !firstCollectionSlug }
+  );
+
+  const matchedCollection = collections.find((c) => c.slug === firstCollectionSlug);
+  const similarRestaurants = similarBusinesses.filter((b) => b.id !== resolvedParams.id);
+
+  const similarScrollerRef = useRef<HTMLDivElement>(null);
+
+  const scrollSimilar = (direction: 'left' | 'right') => {
+    if (similarScrollerRef.current) {
+      const scrollAmount = 304; // w-[280px] + gap-6 (24px)
+      similarScrollerRef.current.scrollBy({
+        left: direction === 'left' ? -scrollAmount : scrollAmount,
+        behavior: 'smooth'
+      });
+    }
+  };
 
   // Load current auth user from localStorage — for customer_id linking only
   const dispatch = useAppDispatch();
@@ -1515,6 +1540,101 @@ export default function RestaurantPage({ params }: { params: Promise<{ id: strin
             </div>
 
           </div>
+
+          {/* Similar Restaurants Horizontal Shelf */}
+          {similarRestaurants.length > 0 && (
+            <div className="mt-12 pt-10 border-t border-slate-200 animate-fadeIn">
+              <div className="flex items-center justify-between mb-6">
+                <div>
+                  <h3 className="text-xl font-extrabold text-slate-800 tracking-tight">
+                    {(() => {
+                      const rawType = profile?.type_name || "Restaurant";
+                      const plural = rawType.toLowerCase().endsWith('s') ? rawType : `${rawType}s`;
+                      return `Similar ${plural}`;
+                    })()}
+                  </h3>
+                  <p className="text-slate-500 text-xs mt-1 font-semibold">
+                    Handpicked recommendations you might also like
+                  </p>
+                </div>
+                
+                {/* Prev / Next navigation arrow buttons */}
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => scrollSimilar('left')}
+                    className="w-9 h-9 rounded-full border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 flex items-center justify-center shadow-sm hover:scale-105 active:scale-95 transition-all cursor-pointer"
+                    aria-label="Scroll left"
+                  >
+                    <ChevronLeft size={18} />
+                  </button>
+                  <button
+                    onClick={() => scrollSimilar('right')}
+                    className="w-9 h-9 rounded-full border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 flex items-center justify-center shadow-sm hover:scale-105 active:scale-95 transition-all cursor-pointer"
+                    aria-label="Scroll right"
+                  >
+                    <ChevronRight size={18} />
+                  </button>
+                </div>
+              </div>
+
+              <div 
+                ref={similarScrollerRef}
+                className="flex gap-6 overflow-x-auto pb-6 pt-1 -mx-4 px-4 sm:mx-0 sm:px-0 scrollbar-hide snap-x scroll-smooth"
+              >
+                {similarRestaurants.map((restaurant) => {
+                  const rating = Number(restaurant.rating || 4.2).toFixed(1);
+                  const cuisine = restaurant.cuisine || "Italian, Chinese, Continental";
+                  const coverImg = restaurant.cover_image_url || "https://images.unsplash.com/photo-1541518763669-27fef04b14ea?w=500&q=80";
+                  const locality = restaurant.address ? restaurant.address.split(",")[0].trim() : "";
+                  const priceForTwo = restaurant.average_cost ? `₹${restaurant.average_cost} for two` : "₹1200 for two";
+
+                  return (
+                    <Link
+                      key={restaurant.id}
+                      href={`/restaurant/${restaurant.id}`}
+                      className="group block bg-white hover:shadow-lg rounded-2xl p-3 border border-slate-100 hover:border-slate-200 transition-all duration-300 w-[280px] shrink-0 snap-start"
+                    >
+                      <div className="relative h-44 rounded-xl overflow-hidden bg-slate-100 mb-3">
+                        <img
+                          src={coverImg}
+                          alt={restaurant.name}
+                          className="w-full h-full object-cover group-hover:scale-[1.03] transition-transform duration-500"
+                          onError={(e) => {
+                            (e.target as HTMLImageElement).src =
+                              "https://images.unsplash.com/photo-1541518763669-27fef04b14ea?w=500&q=80";
+                          }}
+                        />
+                        <div className="absolute inset-0 bg-gradient-to-t from-black/25 via-transparent to-transparent" />
+                      </div>
+
+                      <div className="px-1 pb-1">
+                        <h4 className="font-extrabold text-slate-800 text-[16px] leading-tight truncate group-hover:text-rose-600 transition-colors">
+                          {restaurant.name}
+                        </h4>
+
+                        <div className="flex items-center gap-1.5 mt-1.5">
+                          <span className="bg-emerald-700 text-white text-[10px] font-black px-1.5 py-0.5 rounded flex items-center gap-0.5">
+                            <span>{rating}</span>
+                            <span className="text-[8px]">★</span>
+                          </span>
+                          <span className="text-[9px] text-slate-400 font-bold tracking-wider uppercase">DINING</span>
+                        </div>
+
+                        <div className="flex justify-between items-center gap-2 mt-2.5 text-xs text-slate-500 font-medium">
+                          <span className="truncate flex-1">{cuisine}</span>
+                          <span className="shrink-0 text-slate-700 font-semibold">{priceForTwo}</span>
+                        </div>
+
+                        <div className="text-[11px] text-slate-400 mt-1 font-medium">
+                          {locality}
+                        </div>
+                      </div>
+                    </Link>
+                  );
+                })}
+              </div>
+            </div>
+          )}
 
         </div>
 

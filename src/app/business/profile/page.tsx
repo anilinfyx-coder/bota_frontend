@@ -64,7 +64,7 @@ export default function ProfilePage() {
           menu_images: menuImages,
           dining_offers: diningOffers,
           amenities: amenities,
-          average_cost: averageCost ? parseInt(averageCost) : null,
+          average_cost: averageCost ? parseInt(averageCost) : undefined,
           name,
           address,
           cuisine,

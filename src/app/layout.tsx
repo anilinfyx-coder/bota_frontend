@@ -9,6 +9,72 @@ import { StoreProvider } from "@/providers/StoreProvider";
 
 const inter = Inter({ subsets: ["latin"] });
 
+function Footer() {
+  return (
+    <footer className="bg-slate-900 text-white">
+      <div className="max-w-7xl mx-auto px-4 py-12">
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-8 mb-10">
+          <div className="md:col-span-2">
+            <div className="flex items-center gap-2 mb-4">
+              <div className="w-8 h-8 bg-rose-600 rounded-lg flex items-center justify-center">
+                <span className="text-white font-black text-sm">B</span>
+              </div>
+              <span className="text-xl font-black tracking-tight">Book My Bota</span>
+            </div>
+            <p className="text-slate-400 text-sm leading-relaxed max-w-xs">
+              The smartest way to discover and book tables at the best restaurants, cafes, and bars near you.
+            </p>
+          </div>
+          <div>
+            <h4 className="font-semibold text-sm mb-4 text-slate-300 uppercase tracking-wider">
+              Company
+            </h4>
+            <ul className="space-y-2 text-sm text-slate-400">
+              {["About Us", "Blog", "Careers", "Press"].map((item) => (
+                <li key={item}>
+                  <a href="#" className="hover:text-white transition-colors">
+                    {item}
+                  </a>
+                </li>
+              ))}
+            </ul>
+          </div>
+          <div>
+            <h4 className="font-semibold text-sm mb-4 text-slate-300 uppercase tracking-wider">
+              For Business
+            </h4>
+            <ul className="space-y-2 text-sm text-slate-400">
+              {["List Your Restaurant", "Business Dashboard", "Partner With Us", "Contact"].map(
+                (item) => (
+                  <li key={item}>
+                    <a href="#" className="hover:text-white transition-colors">
+                      {item}
+                    </a>
+                  </li>
+                )
+              )}
+            </ul>
+          </div>
+        </div>
+        <div className="border-t border-slate-800 pt-6 flex flex-col md:flex-row items-center justify-between gap-4">
+          <p className="text-slate-500 text-xs">© 2025 Book My Bota. All rights reserved.</p>
+          <div className="flex items-center gap-6">
+            {["Privacy Policy", "Terms of Service", "Cookie Policy"].map((item) => (
+              <a
+                key={item}
+                href="#"
+                className="text-slate-500 hover:text-slate-300 text-xs transition-colors"
+              >
+                {item}
+              </a>
+            ))}
+          </div>
+        </div>
+      </div>
+    </footer>
+  );
+}
+
 export default function RootLayout({
   children,
 }: Readonly<{
@@ -131,6 +197,76 @@ export default function RootLayout({
                       </span>
                     </Link>
 
+                    {/* Desktop Search & Location capsule */}
+                    {(!isHomePage || scrolled) && (
+                      <div className="hidden md:flex items-center bg-white border border-slate-200/80 rounded-xl shadow-sm max-w-xl flex-1 mx-8 overflow-hidden h-11 text-slate-800">
+                        {/* Location Select */}
+                        <div className="flex items-center gap-1.5 px-3 shrink-0 h-full border-r border-slate-100 hover:bg-slate-50 relative group">
+                          <MapPin size={16} className="text-rose-600" />
+                          <select
+                            value={navCity}
+                            onChange={(e) => {
+                              const selected = e.target.value;
+                              setNavCity(selected);
+                              localStorage.setItem('selected_city', selected);
+                              window.dispatchEvent(new Event('selected_city_changed'));
+                              
+                              // Trigger reload on search page
+                              if (window.location.pathname === '/search') {
+                                const params = new URLSearchParams(window.location.search);
+                                params.set('city', selected);
+                                window.location.href = `/search?${params.toString()}`;
+                              }
+                            }}
+                            className="bg-transparent text-sm font-semibold text-slate-700 focus:outline-none appearance-none pr-5 cursor-pointer max-w-[130px] truncate"
+                          >
+                            <option value="Select Location" disabled>Select Location</option>
+                            {["Mumbai", "Delhi", "Bengaluru", "Ahmedabad", "Pune", "Hyderabad"].map((c) => (
+                              <option key={c} value={c}>{c}</option>
+                            ))}
+                          </select>
+                          <svg className="absolute right-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400 pointer-events-none" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+                          </svg>
+                        </div>
+
+                        {/* Search Input */}
+                        <div className="flex-1 flex items-center gap-2 px-3 h-full">
+                          <Search size={16} className="text-slate-400 shrink-0" />
+                          <input
+                            type="text"
+                            placeholder="Search for restaurant, cuisine or a dish..."
+                            value={navSearchInput}
+                            onChange={(e) => setNavSearchInput(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                const params = new URLSearchParams();
+                                if (navSearchInput.trim()) params.set('search', navSearchInput.trim());
+                                if (navCity && navCity !== 'Select Location') params.set('city', navCity);
+                                window.location.href = `/search?${params.toString()}`;
+                              }
+                            }}
+                            className="flex-1 bg-transparent text-sm placeholder:text-slate-400 text-slate-800 focus:outline-none h-full"
+                          />
+                          {navSearchInput && (
+                            <button 
+                              onClick={() => {
+                                setNavSearchInput("");
+                                if (window.location.pathname === '/search') {
+                                  const params = new URLSearchParams(window.location.search);
+                                  params.delete('search');
+                                  window.location.href = `/search?${params.toString()}`;
+                                }
+                              }} 
+                              className="text-slate-350 hover:text-slate-500 transition-colors"
+                            >
+                              <X size={14} />
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    )}
+
                     {/* User Action Links */}
                     <div className="flex gap-4 sm:gap-6 items-center shrink-0">
                       {user ? (
@@ -184,7 +320,7 @@ export default function RootLayout({
                   </div>
 
                   {/* Row 2: Mobile Sticky Search Capsule */}
-                  {isHomePage && scrolled && (
+                  {(!isHomePage || scrolled) && (
                     <div className="md:hidden border-t border-slate-100 pt-2 pb-3">
                       <button
                         onClick={() => setMobileSearchActive(true)}
@@ -204,7 +340,7 @@ export default function RootLayout({
                   )}
 
                   {/* Full width mobile search overlay inside layout header */}
-                  {isHomePage && scrolled && mobileSearchActive && (
+                  {(!isHomePage || scrolled) && mobileSearchActive && (
                     <div className="absolute inset-0 bg-white z-50 flex items-center px-4 gap-3 animate-fadeIn">
                       {/* Close button */}
                       <button 
@@ -285,6 +421,7 @@ export default function RootLayout({
             )}
           <main className={!isAdminOrBusiness ? "pt-20" : ""}>
             {children}
+            {!isAdminOrBusiness && <Footer />}
           </main>
         </StoreProvider>
       </body>
