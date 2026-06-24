@@ -143,7 +143,7 @@ function SearchContent() {
     const name = r.name || "";
     const cuisine = r.cuisine || "";
 
-    const matchesCity = !cityParam || address.toLowerCase().includes(cityParam.toLowerCase());
+    const matchesCity = !cityParam || cityParam === "All Cities" || address.toLowerCase().includes(cityParam.toLowerCase());
     const matchesQuery =
       !queryParam ||
       name.toLowerCase().includes(queryParam.toLowerCase()) ||

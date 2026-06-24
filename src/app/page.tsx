@@ -357,11 +357,18 @@ export default function Home() {
       if (filterParam) {
         setActiveFilter(filterParam);
       }
+      const storedCity = localStorage.getItem('selected_city');
       if (cityParam) {
         setLocationCity(cityParam);
         setLocationLabel(cityParam);
         localStorage.setItem('selected_city', cityParam);
         window.dispatchEvent(new Event('selected_city_changed'));
+      } else if (storedCity) {
+        setLocationCity(storedCity);
+        setLocationLabel(storedCity);
+      } else {
+        setLocationCity("");
+        setLocationLabel("All Cities");
       }
       if (searchParam) {
         setSearchQuery(searchParam);
@@ -398,9 +405,9 @@ export default function Home() {
   ];
 
   // ── Location state ──
-  const [locationLabel, setLocationLabel] = useState("Detecting...");
+  const [locationLabel, setLocationLabel] = useState("All Cities");
   const [locationCity, setLocationCity] = useState("");
-  const [locationLoading, setLocationLoading] = useState(true);
+  const [locationLoading, setLocationLoading] = useState(false);
   const [locationError, setLocationError] = useState(false);
   const [showLocationDropdown, setShowLocationDropdown] = useState(false);
   const locationRef = useRef<HTMLDivElement>(null);
@@ -469,9 +476,7 @@ export default function Home() {
     );
   }, []);
 
-  useEffect(() => {
-    detectCurrentLocation();
-  }, [detectCurrentLocation]);
+  // No auto-detect on mount. Geolocation only runs when user triggers it explicitly.
 
   // ── Close dropdown on outside click ──
   useEffect(() => {
@@ -497,6 +502,7 @@ export default function Home() {
     const matchesFilter = activeFilter === "All" || (r.type_name && r.type_name.toLowerCase() === activeFilter.toLowerCase());
     const matchesLocation =
       !locationCity ||
+      locationCity === "All Cities" ||
       address.toLowerCase().includes(locationCity.toLowerCase());
     return matchesSearch && matchesFilter && matchesLocation;
   });
@@ -504,7 +510,7 @@ export default function Home() {
   const getFilteredSectionTitle = () => {
     const city = locationCity;
     if (activeFilter === "All") {
-      return city ? `Restaurants in ${city}` : "Restaurants Near You";
+      return (city && city !== "All Cities") ? `Restaurants in ${city}` : "Restaurants Near You";
     }
     const lower = activeFilter.toLowerCase();
     let name = activeFilter;
@@ -513,7 +519,7 @@ export default function Home() {
     else if (lower === "restaurant") name = "Restaurants";
     else if (!name.endsWith("s")) name = name + "s";
 
-    return city ? `${name} in ${city}` : `${name} Near You`;
+    return (city && city !== "All Cities") ? `${name} in ${city}` : `${name} Near You`;
   };
 
   return (

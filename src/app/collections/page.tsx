@@ -41,7 +41,7 @@ function CollectionsContent() {
               Curated Guides
             </span>
             <h1 className="text-3xl md:text-5xl font-black text-white leading-none tracking-tight mb-4">
-              Handpicked Collections{city ? ` in ${city}` : ""}
+              Handpicked Collections{city && city !== "All Cities" ? ` in ${city}` : ""}
             </h1>
             <p className="text-white/70 text-sm md:text-base font-medium leading-relaxed max-w-xl">
               Explore custom lists of premium establishments, trendy cafes, hidden gems, and romantic setups. Verified by experts to make your next dining plan flawless.
@@ -71,7 +71,7 @@ function CollectionsContent() {
               return (
                 <Link
                   key={collection.id}
-                  href={`/search?collection=${collection.slug}${city ? `&city=${encodeURIComponent(city)}` : ""}`}
+                  href={`/search?collection=${collection.slug}${city && city !== "All Cities" ? `&city=${encodeURIComponent(city)}` : ""}`}
                   className="relative group h-80 rounded-2xl overflow-hidden cursor-pointer shadow-md hover:shadow-2xl transition-all duration-300 hover:-translate-y-1.5 block border border-slate-100/50 bg-slate-100"
                 >
                   <img
