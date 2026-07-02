@@ -388,7 +388,8 @@ export default function Login() {
 
                 <div className="mt-6 p-3.5 bg-slate-50 rounded-2xl border border-slate-100 text-center">
                   <p className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider mb-1">Super Admin Default</p>
-                  <p className="text-xs text-slate-600 font-mono">admin@reserve.com / superadmin123</p>
+                  <p className="text-xs text-slate-600 font-mono">admin@reserve.com / Admin@123</p>
+                  <p className="text-[10px] text-slate-400 mt-2">Business admins: name@bookmybota.com / Admin@123</p>
                 </div>
               </div>
             )}
